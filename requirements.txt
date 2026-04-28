@@ -1,0 +1,12 @@
+# Kanban TFG — Python Dependencies
+# Pin major versions to avoid breaking changes; allow patch updates.
+
+Django>=4.2,<5.0                        # LTS release, stable and well-documented
+djangorestframework>=3.14,<4.0          # Industry-standard REST API toolkit
+djangorestframework-simplejwt>=5.3,<6.0 # JWT auth (stateless, scalable)
+django-cors-headers>=4.3,<5.0           # CORS for frontend-backend communication
+
+# Production-only deps (safely no-op in dev: SQLite + runserver ignore them)
+gunicorn>=21.2,<23.0                    # WSGI server for production
+whitenoise>=6.6,<7.0                    # Serve hashed static files from WSGI
+psycopg2-binary>=2.9,<3.0               # PostgreSQL driver
