@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ board.name }} — Kanban TFG{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/board.css' %}">
+<link rel="stylesheet" href="{% static 'css/components/card.css' %}">
+{% endblock %}
+
+{% block topbar %}
+<nav class="topbar">
+    <a href="{% url 'home' %}" class="topbar__brand">Kanban TFG</a>
+    <div class="topbar__user">
+        <span>{{ request.user.username }}</span>
+        <form method="post" action="{% url 'logout' %}" style="display:inline">
+            {% csrf_token %}
+            <button class="topbar__logout" type="submit">Cerrar sesión</button>
+        </form>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<header class="board-header">
+    <div class="board-header__breadcrumb">
+        <a href="{% url 'home' %}">Mis tableros</a>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <span aria-current="page">{{ board.name }}</span>
+    </div>
+
+    <h1 class="board-header__title">{{ board.name }}</h1>
+    {% if board.description %}
+    <p class="board-header__subtitle">{{ board.description }}</p>
+    {% endif %}
+
+    <div class="board-header__meta">
+        <div class="board-header__stat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            </svg>
+            <strong>{{ total_cards }}</strong> tarea{{ total_cards|pluralize:"s" }}
+        </div>
+    </div>
+</header>
+
+<main class="board" id="board" data-board-id="{{ board.id }}">
+    {% for column in columns %}
+    <section class="column" data-column-id="{{ column.id }}" draggable="true">
+        <div class="column__header">
+            <div class="column__title-group">
+                <span class="column__drag-handle" aria-hidden="true">⋮⋮</span>
+                <h2 class="column__title">{{ column.title }}</h2>
+                <span class="column__count">{{ column.cards.count }}</span>
+            </div>
+            <div class="column__actions">
+                {# Renombrar columna #}
+                <button type="button" class="column__menu-btn"
+                        onclick="this.nextElementSibling.classList.toggle('is-open')"
+                        aria-label="Opciones de columna">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="5" r="2"></circle>
+                        <circle cx="12" cy="12" r="2"></circle>
+                        <circle cx="12" cy="19" r="2"></circle>
+                    </svg>
+                </button>
+                <div class="column-menu">
+                    <form method="post"
+                          action="{% url 'column-rename' board_id=board.id column_id=column.id %}"
+                          class="column-menu__rename">
+                        {% csrf_token %}
+                        <input type="text" name="title" value="{{ column.title }}"
+                               class="column-menu__input" aria-label="Nuevo nombre">
+                        <button type="submit" class="column-menu__btn">Renombrar</button>
+                    </form>
+                    <form method="post"
+                          action="{% url 'column-delete' board_id=board.id column_id=column.id %}"
+                          onsubmit="return confirm('¿Eliminar columna y todas sus tareas?')">
+                        {% csrf_token %}
+                        <button type="submit" class="column-menu__item column-menu__item--danger">
+                            Eliminar columna
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="column__cards" data-column-id="{{ column.id }}">
+            {% for card in column.cards.all %}
+            <article class="card" draggable="true" data-card-id="{{ card.id }}">
+                <form method="post"
+                      action="{% url 'card-delete' board_id=board.id card_id=card.id %}"
+                      class="card__delete-form"
+                      onsubmit="event.stopPropagation(); return confirm('¿Eliminar esta tarea?')">
+                    {% csrf_token %}
+                    <button type="submit" class="card__delete"
+                            onclick="event.stopPropagation()"
+                            aria-label="Eliminar tarjeta">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </form>
+
+                <a href="{% url 'card-edit' board_id=board.id card_id=card.id %}"
+                   class="card__link">
+                    <div class="card__header">
+                        <div class="card__priority card__priority--{{ card.get_priority_display|lower }}"></div>
+                        <h3 class="card__title">{{ card.title }}</h3>
+                    </div>
+                    {% if card.description %}
+                    <p class="card__description">{{ card.description|truncatewords:20 }}</p>
+                    {% endif %}
+                    {% if card.labels.exists %}
+                    <div class="card__labels">
+                        {% for label in card.labels.all %}
+                        <span class="card__label"
+                              style="--label-bg: {{ label.color }}22; --label-text: {{ label.color }}; --label-border: {{ label.color }}44;">
+                            {{ label.name }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if card.due_date %}
+                    <div class="card__footer">
+                        <div class="card__due-date{% if card.is_overdue %} card__due-date--overdue{% endif %}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                 stroke-linecap="round">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg>
+                            {{ card.due_date|date:"j M" }}{% if card.is_overdue %} — vencida{% endif %}
+                        </div>
+                        {% if card.assignee %}
+                        <div class="card__assignee" title="{{ card.assignee.get_full_name_or_username }}">
+                            {{ card.assignee.username|make_list|first|upper }}{{ card.assignee.username|make_list|last|upper }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </a>
+            </article>
+            {% empty %}
+            <div class="column__empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                <p class="column__empty-text">Sin tareas en {{ column.title }}</p>
+                <p class="column__empty-hint">Arrastra aquí o añade una nueva tarea</p>
+            </div>
+            {% endfor %}
+        </div>
+
+        {# Formulario para añadir tarjeta #}
+        <button type="button" class="column__add-btn"
+                onclick="var f=this.nextElementSibling; f.style.display='flex'; this.style.display='none'; f.querySelector('input').focus();">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Añadir tarea
+        </button>
+        <form method="post" action="{% url 'card-create' board_id=board.id %}"
+              class="card-form" style="display:none">
+            {% csrf_token %}
+            <input type="hidden" name="column" value="{{ column.id }}">
+            <input class="card-form__title" type="text" name="title"
+                   placeholder="Título de la tarea..." autocomplete="off"
+                   aria-label="Título de la tarea" required>
+            <textarea class="card-form__desc" name="description"
+                      placeholder="Descripción (opcional)..." rows="2"
+                      aria-label="Descripción"></textarea>
+            <div class="card-form__row">
+                <select name="priority" class="card-form__select" aria-label="Prioridad">
+                    <option value="0">Sin prioridad</option>
+                    <option value="1">🟢 Baja</option>
+                    <option value="2">🟡 Media</option>
+                    <option value="3">🔴 Alta</option>
+                    <option value="4">🔴 Urgente</option>
+                </select>
+                <input class="card-form__date" type="date" name="due_date"
+                       aria-label="Fecha límite">
+            </div>
+            <div class="card-form__actions">
+                <button class="card-form__submit" type="submit">Añadir</button>
+                <button class="card-form__cancel" type="button"
+                        onclick="var f=this.closest('form'); f.style.display='none'; f.previousElementSibling.style.display='';">
+                    Cancelar
+                </button>
+            </div>
+        </form>
+    </section>
+    {% endfor %}
+
+    {# Formulario para nueva columna #}
+    <div class="column-add-wrapper">
+        <button type="button" class="column-add-btn" id="add-column-toggle"
+                onclick="document.getElementById('column-form').style.display='flex'; this.style.display='none'; document.getElementById('column-form').querySelector('input[type=text]').focus();">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Nueva columna
+        </button>
+        <form method="post" action="{% url 'column-create' board_id=board.id %}"
+              class="column-form" id="column-form" style="display:none">
+            {% csrf_token %}
+            <input class="column-form__title card-form__title" type="text" name="title"
+                   placeholder="Nombre de la columna..." autocomplete="off"
+                   aria-label="Nombre de la columna" required>
+            <div class="card-form__actions">
+                <button class="card-form__submit" type="submit">Añadir</button>
+                <button class="card-form__cancel" type="button"
+                        onclick="this.closest('form').style.display='none'; document.getElementById('add-column-toggle').style.display='';">
+                    Cancelar
+                </button>
+            </div>
+        </form>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/board.js' %}"></script>
+{% endblock %}
