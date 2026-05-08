@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Kanban TFG — Mis Tableros{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/board.css' %}">
+{% endblock %}
+
+{% block topbar %}
+<nav class="topbar">
+    <a href="{% url 'home' %}" class="topbar__brand">Kanban TFG</a>
+    <div class="topbar__user">
+        <span>{{ request.user.username }}</span>
+        <form method="post" action="{% url 'logout' %}" style="display:inline">
+            {% csrf_token %}
+            <button class="topbar__logout" type="submit">Cerrar sesión</button>
+        </form>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<header class="home-header">
+    <h1 class="home-header__title">Mis tableros</h1>
+    <p class="home-header__subtitle">Selecciona un tablero o crea uno nuevo para empezar.</p>
+</header>
+
+<main class="home">
+    <div class="boards-grid" id="boards-grid">
+
+        {% if not boards %}
+        <div class="home-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <p class="home-empty__text">No tienes ningún tablero todavía</p>
+            <p class="home-empty__hint">Crea uno para empezar</p>
+        </div>
+        {% endif %}
+
+        {% for board in boards %}
+        <div class="board-card" style="cursor:pointer"
+             onclick="window.location.href='{% url 'board-detail' board_id=board.id %}'">
+
+            <form method="post" action="{% url 'board-delete' board_id=board.id %}"
+                  class="board-card__delete-form"
+                  onsubmit="event.stopPropagation(); return confirm('¿Eliminar &quot;{{ board.name }}&quot;? Esta acción no se puede deshacer.');">
+                {% csrf_token %}
+                <button type="submit" class="board-card__delete"
+                        onclick="event.stopPropagation();"
+                        aria-label="Eliminar tablero">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </form>
+
+            <h2 class="board-card__name">{{ board.name }}</h2>
+            <p class="board-card__desc">{{ board.description }}</p>
+            <div class="board-card__meta">
+                <span>{{ board.column_count }} columna{{ board.column_count|pluralize:"s" }}</span>
+                <span>{{ board.card_count }} tarea{{ board.card_count|pluralize:"s" }}</span>
+            </div>
+        </div>
+        {% endfor %}
+
+        {# Botón/formulario para crear tablero #}
+        <div class="board-card board-card--new" id="new-board-toggle"
+             onclick="document.getElementById('new-board-form').style.display='flex'; this.style.display='none';">
+            <span class="board-card__new-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+            </span>
+            <span class="board-card__new-text">Nuevo tablero</span>
+        </div>
+
+        <form method="post" action="{% url 'board-create' %}"
+              class="board-card new-board-form" id="new-board-form"
+              style="display:none">
+            {% csrf_token %}
+            <input class="new-board-form__name" type="text" name="name"
+                   placeholder="Nombre del tablero..." autocomplete="off"
+                   aria-label="Nombre del tablero" required autofocus>
+            <textarea class="new-board-form__desc" name="description"
+                      placeholder="Descripción (opcional)..." rows="2"
+                      aria-label="Descripción"></textarea>
+            <div class="new-board-form__actions">
+                <button class="new-board-form__submit" type="submit">Crear</button>
+                <button class="new-board-form__cancel" type="button"
+                        onclick="this.closest('form').style.display='none'; document.getElementById('new-board-toggle').style.display='';">
+                    Cancelar
+                </button>
+            </div>
+        </form>
+
+    </div>
+</main>
+{% endblock %}
