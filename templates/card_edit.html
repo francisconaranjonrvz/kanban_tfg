@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Editar — {{ card.title }} — Kanban TFG{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/board.css' %}">
+<link rel="stylesheet" href="{% static 'css/components/card.css' %}">
+{% endblock %}
+
+{% block topbar %}
+<nav class="topbar">
+    <a href="{% url 'home' %}" class="topbar__brand">Kanban TFG</a>
+    <div class="topbar__user">
+        <span>{{ request.user.username }}</span>
+        <form method="post" action="{% url 'logout' %}" style="display:inline">
+            {% csrf_token %}
+            <button class="topbar__logout" type="submit">Cerrar sesión</button>
+        </form>
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<header class="board-header">
+    <div class="board-header__breadcrumb">
+        <a href="{% url 'home' %}">Mis tableros</a>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <a href="{% url 'board-detail' board_id=board.id %}">{{ board.name }}</a>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" aria-hidden="true">
+            <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <span aria-current="page">Editar tarea</span>
+    </div>
+</header>
+
+<main class="card-edit-page">
+    <form method="post" class="card-edit-form">
+        {% csrf_token %}
+
+        <div class="card-form__field">
+            <label class="card-form__label" for="id_title">Título</label>
+            <input class="card-form__title" id="id_title" type="text" name="title"
+                   value="{{ card.title }}" required autofocus>
+        </div>
+
+        <div class="card-form__field">
+            <label class="card-form__label" for="id_description">Descripción</label>
+            <textarea class="card-form__desc" id="id_description" name="description"
+                      rows="5">{{ card.description }}</textarea>
+        </div>
+
+        <div class="card-form__row">
+            <div class="card-form__field">
+                <label class="card-form__label" for="id_priority">Prioridad</label>
+                <select name="priority" id="id_priority" class="card-form__select">
+                    <option value="0" {% if card.priority == 0 %}selected{% endif %}>Sin prioridad</option>
+                    <option value="1" {% if card.priority == 1 %}selected{% endif %}>🟢 Baja</option>
+                    <option value="2" {% if card.priority == 2 %}selected{% endif %}>🟡 Media</option>
+                    <option value="3" {% if card.priority == 3 %}selected{% endif %}>🔴 Alta</option>
+                    <option value="4" {% if card.priority == 4 %}selected{% endif %}>🔴 Urgente</option>
+                </select>
+            </div>
+            <div class="card-form__field">
+                <label class="card-form__label" for="id_due_date">Fecha límite</label>
+                <input class="card-form__date" id="id_due_date" type="date" name="due_date"
+                       value="{{ card.due_date|date:'Y-m-d'|default_if_none:'' }}">
+            </div>
+        </div>
+
+        <div class="card-form__field">
+            <label class="card-form__label" for="id_column">Columna</label>
+            <select name="column" id="id_column" class="card-form__select">
+                {% for col in columns %}
+                <option value="{{ col.id }}" {% if col.id == card.column_id %}selected{% endif %}>
+                    {{ col.title }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        {% if labels %}
+        <div class="card-form__field">
+            <label class="card-form__label">Etiquetas</label>
+            <div class="card-edit__labels">
+                {% for label in labels %}
+                <label class="card-edit__label-pill{% if label.id in card_label_ids %} is-active{% endif %}"
+                       style="--label-bg: {{ label.color }}22; --label-text: {{ label.color }}; --label-border: {{ label.color }}44;">
+                    <input type="checkbox" name="labels" value="{{ label.id }}"
+                           {% if label.id in card_label_ids %}checked{% endif %}
+                           class="card-edit__label-check">
+                    {{ label.name }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card-form__actions">
+            <button class="card-form__submit" type="submit">Guardar</button>
+            <a href="{% url 'board-detail' board_id=board.id %}" class="card-form__cancel">Cancelar</a>
+        </div>
+    </form>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.card-edit__label-check').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+        this.closest('.card-edit__label-pill').classList.toggle('is-active', this.checked);
+    });
+});
+</script>
+{% endblock %}
