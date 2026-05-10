@@ -1,0 +1,206 @@
+// Drag & drop de tarjetas y columnas + cierre de menus
+// Es el único JS del proyecto (aparte de toggles inline en los templates)
+
+(function () {
+  'use strict';
+
+  var boardEl = document.getElementById('board');
+  if (!boardEl) return;
+
+  var boardId = boardEl.dataset.boardId;
+  var csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+  var draggedEl = null;
+  var dragKind = null; // 'card' o 'column'
+
+  // --- Drag start ---
+  boardEl.addEventListener('dragstart', function (e) {
+    var card = e.target.closest('.card');
+    if (card) {
+      dragKind = 'card';
+      draggedEl = card;
+      card.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.cardId);
+      requestAnimationFrame(function () { card.style.opacity = '0.4'; });
+      return;
+    }
+
+    var col = e.target.closest('.column');
+    if (col) {
+      dragKind = 'column';
+      draggedEl = col;
+      col.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', 'col:' + col.dataset.columnId);
+    }
+  });
+
+  // --- Drag over ---
+  boardEl.addEventListener('dragover', function (e) {
+    if (dragKind === 'column') {
+      var overCol = e.target.closest('.column');
+      if (!overCol || overCol === draggedEl) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      return;
+    }
+
+    var zone = e.target.closest('.column__cards');
+    if (!zone || !draggedEl) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    zone.classList.add('is-drop-target');
+    positionIndicator(zone, e.clientY);
+  });
+
+  // --- Drag leave ---
+  boardEl.addEventListener('dragleave', function (e) {
+    var zone = e.target.closest('.column__cards');
+    if (!zone) return;
+    if (!zone.contains(e.relatedTarget)) {
+      zone.classList.remove('is-drop-target');
+      removeIndicator(zone);
+    }
+  });
+
+  // --- Drop ---
+  boardEl.addEventListener('drop', function (e) {
+    e.preventDefault();
+
+    if (dragKind === 'column' && draggedEl) {
+      var overCol = e.target.closest('.column');
+      if (overCol && overCol !== draggedEl) {
+        var cols = Array.from(boardEl.querySelectorAll('.column'));
+        var ids = cols.map(function (c) { return c.dataset.columnId; })
+                      .filter(function (id) { return id !== draggedEl.dataset.columnId; });
+        var idx = ids.indexOf(overCol.dataset.columnId);
+        var rect = overCol.getBoundingClientRect();
+        if (e.clientX > rect.left + rect.width / 2) idx += 1;
+
+        postJSON('/board/' + boardId + '/column/move/', {
+          column_id: parseInt(draggedEl.dataset.columnId),
+          order: idx,
+        }).then(function () { location.reload(); });
+      }
+      cleanup();
+      return;
+    }
+
+    var zone = e.target.closest('.column__cards');
+    if (!zone || !draggedEl) { cleanup(); return; }
+
+    var toColumnId = zone.dataset.columnId;
+    var cardId = draggedEl.dataset.cardId;
+    var order = getDropIndex(zone, e.clientY);
+
+    // Mover visualmente al instante
+    removeIndicator(zone);
+    var ref = zone.querySelectorAll('.card')[order];
+    if (ref) zone.insertBefore(draggedEl, ref);
+    else zone.appendChild(draggedEl);
+
+    cleanup();
+
+    postJSON('/board/' + boardId + '/card/move/', {
+      card_id: parseInt(cardId),
+      column_id: parseInt(toColumnId),
+      order: order,
+    }).then(function () { location.reload(); });
+  });
+
+  // --- Drag end ---
+  boardEl.addEventListener('dragend', function () {
+    cleanup();
+  });
+
+  // --- Helpers ---
+
+  function getDropIndex(zone, mouseY) {
+    var cards = Array.from(zone.querySelectorAll('.card'))
+      .filter(function (c) { return c !== draggedEl; });
+    for (var i = 0; i < cards.length; i++) {
+      var rect = cards[i].getBoundingClientRect();
+      if (mouseY < rect.top + rect.height / 2) return i;
+    }
+    return cards.length;
+  }
+
+  function positionIndicator(zone, mouseY) {
+    var ind = zone.querySelector('.drop-indicator');
+    if (!ind) {
+      ind = document.createElement('div');
+      ind.className = 'drop-indicator';
+      zone.appendChild(ind);
+    }
+    var cards = Array.from(zone.querySelectorAll('.card'))
+      .filter(function (c) { return c !== draggedEl; });
+    var idx = getDropIndex(zone, mouseY);
+    if (idx >= cards.length) zone.appendChild(ind);
+    else cards[idx].insertAdjacentElement('beforebegin', ind);
+  }
+
+  function removeIndicator(zone) {
+    var ind = zone.querySelector('.drop-indicator');
+    if (ind) ind.remove();
+  }
+
+  function cleanup() {
+    if (draggedEl) {
+      draggedEl.classList.remove('is-dragging');
+      draggedEl.style.opacity = '';
+    }
+    boardEl.querySelectorAll('.is-drop-target').forEach(function (el) {
+      el.classList.remove('is-drop-target');
+    });
+    boardEl.querySelectorAll('.drop-indicator').forEach(function (el) {
+      el.remove();
+    });
+    draggedEl = null;
+    dragKind = null;
+  }
+
+  function postJSON(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // --- Cerrar menús de columna al hacer clic fuera ---
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.column__actions')) {
+      document.querySelectorAll('.column-menu.is-open').forEach(function (m) {
+        m.classList.remove('is-open');
+      });
+    }
+  });
+
+  // Escape cierra menús y formularios inline
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+
+    document.querySelectorAll('.column-menu.is-open').forEach(function (m) {
+      m.classList.remove('is-open');
+    });
+
+    // Cerrar formularios inline de tarjetas
+    document.querySelectorAll('.card-form[style*="flex"]').forEach(function (f) {
+      f.style.display = 'none';
+      var btn = f.previousElementSibling;
+      if (btn) btn.style.display = '';
+    });
+
+    // Cerrar formulario de columna
+    var colForm = document.getElementById('column-form');
+    if (colForm && colForm.style.display !== 'none') {
+      colForm.style.display = 'none';
+      var toggle = document.getElementById('add-column-toggle');
+      if (toggle) toggle.style.display = '';
+    }
+  });
+})();
