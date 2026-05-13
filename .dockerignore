@@ -1,0 +1,32 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Local data — never bake into the image
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+staticfiles/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Git / docs / scratch
+.git/
+.gitignore
+documentos_profesor/
+*.log
+
+# Compose-specific runtime
+certbot/
+nginx/
+.env
+.env.*
