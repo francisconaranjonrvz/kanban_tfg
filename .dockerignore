@@ -23,6 +23,9 @@ Thumbs.db
 .git/
 .gitignore
 documentos_profesor/
+documentacion_tfg.docx
+*.docx
+*.exe
 *.log
 
 # Compose-specific runtime

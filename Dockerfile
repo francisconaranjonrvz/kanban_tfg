@@ -35,16 +35,14 @@ COPY --from=builder /install /usr/local
 WORKDIR /app
 COPY --chown=app:app . /app
 
-# Generar los archivos estáticos en build
 RUN DJANGO_SECRET_KEY=build-time DJANGO_DEBUG=False \
     python manage.py collectstatic --noinput
+
+RUN chmod +x /app/docker-entrypoint.sh
 
 USER app
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl --fail --silent http://localhost:${PORT}/healthz || exit 1
-
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["gunicorn", "kanban.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--access-logfile", "-"]
+ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]
+CMD ["sh", "-c", "exec gunicorn kanban.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${GUNICORN_WORKERS:-1} --access-logfile -"]
