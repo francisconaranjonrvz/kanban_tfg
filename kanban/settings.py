@@ -87,7 +87,17 @@ WSGI_APPLICATION = 'kanban.wsgi.application'
 # --- Base de datos ---
 
 _DB_ENGINE = os.environ.get('DJANGO_DB_ENGINE', 'sqlite')
-if _DB_ENGINE == 'postgres':
+_DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+
+if _DATABASE_URL:
+    import dj_database_url
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=_DATABASE_URL,
+            conn_max_age=60,
+        )
+    }
+elif _DB_ENGINE == 'postgres':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
