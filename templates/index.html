@@ -24,6 +24,9 @@
 <header class="home-header">
     <h1 class="home-header__title">Mis tableros</h1>
     <p class="home-header__subtitle">Selecciona un tablero o crea uno nuevo para empezar.</p>
+    <p id="daily-quote" class="home-header__quote"{% if not advice_quote %} aria-live="polite"{% endif %}>
+        {% if advice_quote %}&ldquo;{{ advice_quote }}&rdquo;{% endif %}
+    </p>
 </header>
 
 <main class="home">
@@ -103,4 +106,8 @@
 
     </div>
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/apis.js' %}"></script>
 {% endblock %}

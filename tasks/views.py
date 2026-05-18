@@ -213,3 +213,10 @@ def card_move_view(request, board_id):
         card.save(update_fields=['order'])
 
     return JsonResponse({'ok': True})
+
+
+@login_required
+def plantillas_api_view(request):
+    """API interna: plantillas de tareas sugeridas."""
+    from .plantillas_data import PLANTILLAS
+    return JsonResponse(PLANTILLAS, safe=False)

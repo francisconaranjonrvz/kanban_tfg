@@ -176,7 +176,12 @@ def home_view(request):
         .select_related('owner')
         .order_by('-updated_at')
     )
-    return render(request, 'index.html', {'boards': boards})
+    from kanban.integrations import fetch_advice
+
+    return render(request, 'index.html', {
+        'boards': boards,
+        'advice_quote': fetch_advice(),
+    })
 
 
 @login_required
@@ -237,13 +242,21 @@ def board_detail_view(request, board_id):
         .prefetch_related('cards__labels', 'cards__assignee')
         .order_by('order')
     )
+    from kanban.integrations import fetch_random_users
+    from tasks.plantillas_data import PLANTILLAS
+
     labels = board.labels.all()
     total_cards = Card.objects.filter(column__board=board).count()
+    team_members = fetch_random_users(3)
+    first_column = columns[0] if columns else None
     return render(request, 'board.html', {
         'board': board,
         'columns': columns,
         'labels': labels,
         'total_cards': total_cards,
+        'team_members': team_members,
+        'plantillas': PLANTILLAS,
+        'first_column': first_column,
     })
 
 

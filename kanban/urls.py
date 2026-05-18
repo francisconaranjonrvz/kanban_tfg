@@ -20,6 +20,7 @@ from tasks.views import (
     card_delete_view,
     card_edit_view,
     card_move_view,
+    plantillas_api_view,
 )
 from users.views import register_view
 
@@ -31,6 +32,9 @@ urlpatterns = [
     # Healthchecks para Docker
     path('healthz', liveness, name='healthz'),
     path('readyz', readiness, name='readyz'),
+
+    # API interna (plantillas de tareas)
+    path('api/plantillas/', plantillas_api_view, name='api-plantillas'),
 
     # API v1 (se mantiene para uso futuro / app móvil)
     path('api/v1/auth/', include('users.urls')),

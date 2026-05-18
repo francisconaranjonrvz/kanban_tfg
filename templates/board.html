@@ -48,10 +48,39 @@
             </svg>
             <strong>{{ total_cards }}</strong> tarea{{ total_cards|pluralize:"s" }}
         </div>
+        <div class="board-header__stat">
+            <div id="team-members" class="board-header__team">
+                {% for member in team_members %}
+                <img class="team-avatar" src="{{ member.picture }}" alt="{{ member.name }}"
+                     title="{{ member.name }}">
+                {% endfor %}
+            </div>
+            <strong data-stat="member-count">{% if team_members %}{{ team_members|length }}{% else %}3{% endif %}</strong>
+            colaborador{% if team_members|length != 1 %}es{% endif %}
+        </div>
     </div>
 </header>
 
-<main class="board" id="board" data-board-id="{{ board.id }}">
+{% if first_column %}
+<div id="suggestions" class="board-suggestions">
+    <span class="board-suggestions__label">Sugerencias:</span>
+    {% for plantilla in plantillas %}
+    <form method="post" action="{% url 'card-create' board_id=board.id %}" class="suggestion-import-form">
+        {% csrf_token %}
+        <input type="hidden" name="column" value="{{ first_column.id }}">
+        <input type="hidden" name="title" value="{{ plantilla.titulo }}">
+        <input type="hidden" name="description" value="{{ plantilla.descripcion }}">
+        <input type="hidden" name="priority" value="{{ plantilla.prioridad }}">
+        <button type="submit" class="suggestion-btn">{{ plantilla.titulo }}</button>
+    </form>
+    {% endfor %}
+</div>
+{% else %}
+<div id="suggestions" class="board-suggestions"></div>
+{% endif %}
+
+<main class="board" id="board" data-board-id="{{ board.id }}"
+      data-first-column-id="{% if first_column %}{{ first_column.id }}{% endif %}">
     {% for column in columns %}
     <section class="column" data-column-id="{{ column.id }}" draggable="true">
         <div class="column__header">
@@ -236,5 +265,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/apis.js' %}"></script>
 <script src="{% static 'js/board.js' %}"></script>
 {% endblock %}

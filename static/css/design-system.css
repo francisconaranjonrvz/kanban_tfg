@@ -11,9 +11,9 @@
 
     /* Contraste validado con WCAG AA */
     --color-text-primary:   #f0f2f6;
-    --color-text-secondary: #8b92a5;
-    --color-text-tertiary:  #7e869b;
-    --color-text-disabled:  #5d6677;
+    --color-text-secondary: #a8afbf;
+    --color-text-tertiary:  #949dad;
+    --color-text-disabled:  #727a8f;
 
     --color-accent:         #4f7bff;
     --color-accent-hover:   #6b91ff;
@@ -32,8 +32,8 @@
     --color-priority-high:   #f97316;
     --color-priority-urgent: #ef4444;
 
-    --color-border:        rgba(255, 255, 255, 0.09);
-    --color-border-hover:  rgba(255, 255, 255, 0.15);
+    --color-border:        rgba(255, 255, 255, 0.12);
+    --color-border-hover:  rgba(255, 255, 255, 0.2);
     --color-border-focus:  var(--color-accent);
 
     --font-display:    'Space Grotesk', 'Inter', -apple-system, sans-serif;
