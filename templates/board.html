@@ -1,267 +1,251 @@
-{% extends 'base.html' %}
+{% extends 'base_app.html' %}
 {% load static %}
 
-{% block title %}{{ board.name }} — Kanban TFG{% endblock %}
+{% block title %}{{ board.name }} — Flowly{% endblock %}
 
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/board.css' %}">
-<link rel="stylesheet" href="{% static 'css/components/card.css' %}">
-{% endblock %}
-
-{% block topbar %}
-<nav class="topbar">
-    <a href="{% url 'home' %}" class="topbar__brand">Kanban TFG</a>
-    <div class="topbar__user">
-        <span>{{ request.user.username }}</span>
-        <form method="post" action="{% url 'logout' %}" style="display:inline">
-            {% csrf_token %}
-            <button class="topbar__logout" type="submit">Cerrar sesión</button>
-        </form>
-    </div>
-</nav>
-{% endblock %}
+{# El kanban gestiona su propia altura/scroll; sin padding del main. #}
+{% block main_class %}flex flex-col h-[calc(100vh-4rem)] overflow-hidden{% endblock %}
 
 {% block content %}
-<header class="board-header">
-    <div class="board-header__breadcrumb">
-        <a href="{% url 'home' %}">Mis tableros</a>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" aria-hidden="true">
-            <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
-        <span aria-current="page">{{ board.name }}</span>
-    </div>
+{# ---- Cabecera del tablero ---- #}
+<div class="px-4 md:px-6 pt-4 pb-3 shrink-0">
+    {% include 'partials/_board_header.html' %}
+</div>
 
-    <h1 class="board-header__title">{{ board.name }}</h1>
-    {% if board.description %}
-    <p class="board-header__subtitle">{{ board.description }}</p>
-    {% endif %}
-
-    <div class="board-header__meta">
-        <div class="board-header__stat">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" aria-hidden="true">
-                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
-                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
-                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
-                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
-            </svg>
-            <strong>{{ total_cards }}</strong> tarea{{ total_cards|pluralize:"s" }}
-        </div>
-        <div class="board-header__stat">
-            <div id="team-members" class="board-header__team">
-                {% for member in team_members %}
-                <img class="team-avatar" src="{{ member.picture }}" alt="{{ member.name }}"
-                     title="{{ member.name }}">
-                {% endfor %}
-            </div>
-            <strong data-stat="member-count">{% if team_members %}{{ team_members|length }}{% else %}3{% endif %}</strong>
-            colaborador{% if team_members|length != 1 %}es{% endif %}
-        </div>
-    </div>
-</header>
-
+{# ---- Sugerencias (plantillas) ---- #}
 {% if first_column %}
-<div id="suggestions" class="board-suggestions">
-    <span class="board-suggestions__label">Sugerencias:</span>
+<div id="suggestions" class="px-4 md:px-6 pb-2 shrink-0 flex items-center gap-2 flex-wrap text-sm">
+    <span class="text-on-surface-variant font-display text-xs uppercase tracking-wide">Sugerencias:</span>
     {% for plantilla in plantillas %}
-    <form method="post" action="{% url 'card-create' board_id=board.id %}" class="suggestion-import-form">
+    <form method="post" action="{% url 'card-create' board_id=board.id %}" class="suggestion-import-form inline">
         {% csrf_token %}
         <input type="hidden" name="column" value="{{ first_column.id }}">
         <input type="hidden" name="title" value="{{ plantilla.titulo }}">
         <input type="hidden" name="description" value="{{ plantilla.descripcion }}">
         <input type="hidden" name="priority" value="{{ plantilla.prioridad }}">
-        <button type="submit" class="suggestion-btn">{{ plantilla.titulo }}</button>
+        <button type="submit" class="suggestion-btn rounded-full border border-outline-variant bg-surface-container text-on-surface-variant hover:text-accent hover:border-accent text-xs px-3 py-1 transition-colors">{{ plantilla.titulo }}</button>
     </form>
     {% endfor %}
 </div>
 {% else %}
-<div id="suggestions" class="board-suggestions"></div>
+<div id="suggestions" class="px-4 md:px-6 shrink-0"></div>
 {% endif %}
 
-<main class="board" id="board" data-board-id="{{ board.id }}"
+{# ---- Columnas ---- #}
+<div class="flex-1 overflow-x-auto px-4 md:px-6 pb-4 kanban-scroll">
+<main class="board flex gap-4 items-start h-full min-h-0" id="board"
+      data-board-id="{{ board.id }}"
       data-first-column-id="{% if first_column %}{{ first_column.id }}{% endif %}">
+
     {% for column in columns %}
-    <section class="column" data-column-id="{{ column.id }}" draggable="true">
-        <div class="column__header">
-            <div class="column__title-group">
-                <span class="column__drag-handle" aria-hidden="true">⋮⋮</span>
-                <h2 class="column__title">{{ column.title }}</h2>
-                <span class="column__count">{{ column.cards.count }}</span>
+    <section class="column flex-shrink-0 w-[300px] max-h-full flex flex-col rounded-xl bg-surface-container-low border border-outline-variant p-2"
+             data-column-id="{{ column.id }}" draggable="true"
+             x-data="{ addCard: false, more: false }" @keydown.escape.window="addCard = false">
+
+        {# Cabecera de columna #}
+        <div class="flex items-center justify-between px-1.5 py-2 mb-1">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="column__drag-handle cursor-grab text-on-surface-variant select-none text-xs" aria-hidden="true">⠿</span>
+                <h3 id="column-title-{{ column.id }}" class="font-display font-bold uppercase tracking-wide text-xs text-on-surface-variant truncate">{{ column.title }}</h3>
+                <span class="bg-surface-variant text-on-surface-variant text-[10px] font-bold px-2 py-0.5 rounded-full">{{ column.cards.count }}</span>
             </div>
-            <div class="column__actions">
-                {# Renombrar columna #}
-                <button type="button" class="column__menu-btn"
-                        onclick="this.nextElementSibling.classList.toggle('is-open')"
-                        aria-label="Opciones de columna">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="12" cy="5" r="2"></circle>
-                        <circle cx="12" cy="12" r="2"></circle>
-                        <circle cx="12" cy="19" r="2"></circle>
-                    </svg>
+            <div class="column__actions relative" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+                <button type="button" @click="open = !open" aria-label="Opciones de columna"
+                        class="w-7 h-7 rounded-md flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors">
+                    <span class="material-symbols-outlined text-[18px]">more_horiz</span>
                 </button>
-                <div class="column-menu">
+                <div x-show="open" x-cloak class="absolute right-0 mt-1 w-52 rounded-lg bg-surface-container border border-outline-variant shadow-lift p-2 z-30">
                     <form method="post"
                           action="{% url 'column-rename' board_id=board.id column_id=column.id %}"
-                          class="column-menu__rename">
+                          hx-post="{% url 'column-rename' board_id=board.id column_id=column.id %}"
+                          hx-target="#column-title-{{ column.id }}" hx-swap="outerHTML"
+                          @htmx:after-request="open = false" class="flex gap-1 mb-1">
                         {% csrf_token %}
-                        <input type="text" name="title" value="{{ column.title }}"
-                               class="column-menu__input" aria-label="Nuevo nombre">
-                        <button type="submit" class="column-menu__btn">Renombrar</button>
+                        <input type="text" name="title" value="{{ column.title }}" aria-label="Nuevo nombre"
+                               class="flex-1 min-w-0 bg-surface-variant rounded-md px-2 py-1.5 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
+                        <button type="submit" class="rounded-md bg-primary text-on-primary text-xs font-bold px-2 hover:opacity-90">OK</button>
                     </form>
-                    <form method="post"
-                          action="{% url 'column-delete' board_id=board.id column_id=column.id %}"
+                    <form method="post" action="{% url 'column-delete' board_id=board.id column_id=column.id %}"
                           onsubmit="return confirm('¿Eliminar columna y todas sus tareas?')">
                         {% csrf_token %}
-                        <button type="submit" class="column-menu__item column-menu__item--danger">
-                            Eliminar columna
+                        <button type="submit" class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-danger hover:bg-danger/10 transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">delete</span> Eliminar columna
                         </button>
                     </form>
                 </div>
             </div>
         </div>
 
-        <div class="column__cards" data-column-id="{{ column.id }}">
+        {# Tarjetas #}
+        <div class="column__cards flex-1 overflow-y-auto space-y-2 pr-0.5 kanban-scroll min-h-[8px]" data-column-id="{{ column.id }}">
             {% for card in column.cards.all %}
-            <article class="card" draggable="true" data-card-id="{{ card.id }}">
-                <form method="post"
-                      action="{% url 'card-delete' board_id=board.id card_id=card.id %}"
-                      class="card__delete-form"
-                      onsubmit="event.stopPropagation(); return confirm('¿Eliminar esta tarea?')">
-                    {% csrf_token %}
-                    <button type="submit" class="card__delete"
-                            onclick="event.stopPropagation()"
-                            aria-label="Eliminar tarjeta">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                             stroke-linecap="round">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </form>
+            {% with lbl=card.labels.first %}
+            <article class="card group relative overflow-hidden rounded-lg bg-surface-container border border-outline-variant p-3.5 cursor-grab hover:border-outline transition-colors"
+                     draggable="true" data-card-id="{{ card.id }}">
+                {% if lbl %}<div class="absolute left-0 top-0 bottom-0 w-1" style="background-color: {{ lbl.color }};"></div>{% endif %}
 
-                <a href="{% url 'card-edit' board_id=board.id card_id=card.id %}"
-                   class="card__link">
-                    <div class="card__header">
-                        <div class="card__priority card__priority--{{ card.get_priority_display|lower }}"></div>
-                        <h3 class="card__title">{{ card.title }}</h3>
+                <div class="flex items-start justify-between gap-2 mb-2">
+                    {% if lbl %}
+                    <span class="font-display text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded" style="background-color: {{ lbl.color }}26; color: {{ lbl.color }};">{{ lbl.name }}</span>
+                    {% else %}<span></span>{% endif %}
+                    <div class="flex items-center gap-1">
+                        {% if card.priority == 4 %}<span class="text-[10px] font-display font-bold uppercase px-1.5 py-0.5 rounded bg-danger/15 text-danger">Urgente</span>
+                        {% elif card.priority == 3 %}<span class="text-[10px] font-display font-bold uppercase px-1.5 py-0.5 rounded bg-warning/15 text-warning">Alta</span>{% endif %}
+                        <form method="post" action="{% url 'card-delete' board_id=board.id card_id=card.id %}"
+                              class="opacity-0 group-hover:opacity-100 transition-opacity"
+                              onsubmit="event.stopPropagation(); return confirm('¿Eliminar esta tarea?')">
+                            {% csrf_token %}
+                            <button type="submit" onclick="event.stopPropagation()" aria-label="Eliminar tarjeta"
+                                    class="w-6 h-6 rounded flex items-center justify-center text-on-surface-variant hover:text-danger">
+                                <span class="material-symbols-outlined text-[16px]">close</span>
+                            </button>
+                        </form>
                     </div>
-                    {% if card.description %}
-                    <p class="card__description">{{ card.description|truncatewords:20 }}</p>
-                    {% endif %}
-                    {% if card.labels.exists %}
-                    <div class="card__labels">
-                        {% for label in card.labels.all %}
-                        <span class="card__label"
-                              style="--label-bg: {{ label.color }}22; --label-text: {{ label.color }}; --label-border: {{ label.color }}44;">
-                            {{ label.name }}
+                </div>
+
+                <a href="{% url 'card-edit' board_id=board.id card_id=card.id %}" class="block">
+                    <h4 class="font-semibold text-sm text-on-surface leading-snug mb-1">{{ card.title }}</h4>
+                    {% if card.description %}<p class="text-xs text-on-surface-variant line-clamp-2 mb-2">{{ card.description|truncatewords:20 }}</p>{% endif %}
+                </a>
+
+                {% if card.subtask_total %}
+                <div class="mt-2 mb-1">
+                    <div class="flex items-center justify-between mb-1 text-[10px] font-mono text-on-surface-variant">
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">checklist</span>{{ card.subtask_done }}/{{ card.subtask_total }}</span>
+                        <span>{{ card.progress }}%</span>
+                    </div>
+                    <div class="h-1 w-full rounded-full bg-surface-variant overflow-hidden">
+                        <div class="h-full rounded-full bg-primary" style="width: {{ card.progress }}%;"></div>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% with assignees=card.assignees.all comment_count=card.comments.count %}
+                {% if card.due_date or assignees or comment_count %}
+                <div class="flex items-center justify-between mt-2 gap-2">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        {% if card.due_date %}
+                        <span class="flex items-center gap-1 text-[11px] font-mono {% if card.is_overdue %}text-danger{% else %}text-on-surface-variant{% endif %}">
+                            <span class="material-symbols-outlined text-[14px]">event</span>{{ card.due_date|date:"j M" }}
                         </span>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                    {% if card.due_date %}
-                    <div class="card__footer">
-                        <div class="card__due-date{% if card.is_overdue %} card__due-date--overdue{% endif %}">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                 stroke-linecap="round">
-                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                                <line x1="16" y1="2" x2="16" y2="6"></line>
-                                <line x1="8" y1="2" x2="8" y2="6"></line>
-                                <line x1="3" y1="10" x2="21" y2="10"></line>
-                            </svg>
-                            {{ card.due_date|date:"j M" }}{% if card.is_overdue %} — vencida{% endif %}
-                        </div>
-                        {% if card.assignee %}
-                        <div class="card__assignee" title="{{ card.assignee.get_full_name_or_username }}">
-                            {{ card.assignee.username|make_list|first|upper }}{{ card.assignee.username|make_list|last|upper }}
-                        </div>
+                        {% endif %}
+                        {% if comment_count %}
+                        <span class="flex items-center gap-1 text-[11px] font-mono text-on-surface-variant">
+                            <span class="material-symbols-outlined text-[14px]">chat_bubble</span>{{ comment_count }}
+                        </span>
                         {% endif %}
                     </div>
+                    {% if assignees %}
+                    <div class="flex -space-x-2 shrink-0">
+                        {% for member in assignees|slice:":3" %}
+                        {% include 'partials/_avatar.html' with profile_user=member size='w-6 h-6 text-[10px]' ring='border-2 border-surface-container' only %}
+                        {% endfor %}
+                        {% if assignees|length > 3 %}
+                        <span class="w-6 h-6 rounded-full bg-surface-variant border-2 border-surface-container text-on-surface-variant flex items-center justify-center text-[9px] font-display font-bold">+{{ assignees|length|add:"-3" }}</span>
+                        {% endif %}
+                    </div>
+                    {% elif card.assignee %}
+                    {% include 'partials/_avatar.html' with profile_user=card.assignee size='w-6 h-6 text-[10px]' only %}
                     {% endif %}
-                </a>
+                </div>
+                {% endif %}
+                {% endwith %}
             </article>
+            {% endwith %}
             {% empty %}
-            <div class="column__empty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-                     stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                </svg>
-                <p class="column__empty-text">Sin tareas en {{ column.title }}</p>
-                <p class="column__empty-hint">Arrastra aquí o añade una nueva tarea</p>
-            </div>
+            <p class="text-center text-on-surface-variant text-xs py-6">Sin tareas</p>
             {% endfor %}
         </div>
 
-        {# Formulario para añadir tarjeta #}
-        <button type="button" class="column__add-btn"
-                onclick="var f=this.nextElementSibling; f.style.display='flex'; this.style.display='none'; f.querySelector('input').focus();">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            Añadir tarea
+        {# Añadir tarjeta #}
+        <button type="button" x-show="!addCard"
+                @click="addCard = true; $nextTick(() => $refs.cardTitle.focus())"
+                class="mt-1 flex items-center gap-2 w-full px-2 py-2 rounded-lg text-sm text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors">
+            <span class="material-symbols-outlined text-[18px]">add</span> Añadir tarea
         </button>
-        <form method="post" action="{% url 'card-create' board_id=board.id %}"
-              class="card-form" style="display:none">
+        <form method="post" action="{% url 'card-create' board_id=board.id %}" class="card-form mt-1 space-y-2" x-show="addCard" x-cloak>
             {% csrf_token %}
             <input type="hidden" name="column" value="{{ column.id }}">
-            <input class="card-form__title" type="text" name="title"
-                   placeholder="Título de la tarea..." autocomplete="off"
-                   aria-label="Título de la tarea" required>
-            <textarea class="card-form__desc" name="description"
-                      placeholder="Descripción (opcional)..." rows="2"
-                      aria-label="Descripción"></textarea>
-            <div class="card-form__row">
-                <select name="priority" class="card-form__select" aria-label="Prioridad">
+            <input class="w-full bg-surface-container rounded-lg p-2.5 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-1 focus:ring-primary" type="text" name="title" x-ref="cardTitle" placeholder="Título de la tarea..." autocomplete="off" aria-label="Título" required>
+            <div class="flex items-center gap-2">
+                <select name="priority" class="bg-surface-container rounded-lg p-2 text-xs text-on-surface focus:outline-none" aria-label="Prioridad">
                     <option value="0">Sin prioridad</option>
-                    <option value="1">🟢 Baja</option>
-                    <option value="2">🟡 Media</option>
-                    <option value="3">🔴 Alta</option>
-                    <option value="4">🔴 Urgente</option>
+                    <option value="1">Baja</option>
+                    <option value="2">Media</option>
+                    <option value="3">Alta</option>
+                    <option value="4">Urgente</option>
                 </select>
-                <input class="card-form__date" type="date" name="due_date"
-                       aria-label="Fecha límite">
+                <input class="flex-1 min-w-0 bg-surface-container rounded-lg p-2 text-xs text-on-surface focus:outline-none" type="date" name="due_date" aria-label="Fecha límite">
             </div>
-            <div class="card-form__actions">
-                <button class="card-form__submit" type="submit">Añadir</button>
-                <button class="card-form__cancel" type="button"
-                        onclick="var f=this.closest('form'); f.style.display='none'; f.previousElementSibling.style.display='';">
-                    Cancelar
-                </button>
+
+            {# Más opciones: descripción, etiquetas, asignados #}
+            <button type="button" @click="more = !more"
+                    class="flex items-center gap-1 text-[11px] font-display uppercase tracking-wide text-on-surface-variant hover:text-accent transition-colors">
+                <span class="material-symbols-outlined text-[16px]" x-text="more ? 'expand_less' : 'expand_more'">expand_more</span>
+                <span x-text="more ? 'Menos opciones' : 'Más opciones'">Más opciones</span>
+            </button>
+            <div x-show="more" x-cloak class="space-y-2">
+                <textarea name="description" rows="2" placeholder="Descripción (opcional)..."
+                          class="w-full bg-surface-container rounded-lg p-2 text-xs text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-1 focus:ring-primary resize-y"></textarea>
+                {% if labels %}
+                <div>
+                    <p class="text-[10px] font-display uppercase tracking-wide text-on-surface-variant mb-1">Etiquetas</p>
+                    <div class="flex flex-wrap gap-1.5">
+                        {% for label in labels %}
+                        <label class="cursor-pointer text-[11px] font-display font-semibold px-2 py-0.5 rounded-full border transition-colors"
+                               x-data="{ on: false }"
+                               :style="on ? 'background-color: {{ label.color }}26; color: {{ label.color }}; border-color: {{ label.color }}' : 'border-color: rgb(var(--outline-variant))'"
+                               :class="on ? '' : 'text-on-surface-variant'">
+                            <input type="checkbox" name="labels" value="{{ label.id }}" class="hidden" @change="on = $event.target.checked">
+                            {{ label.name }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if members %}
+                <div>
+                    <p class="text-[10px] font-display uppercase tracking-wide text-on-surface-variant mb-1">Asignados</p>
+                    <div class="flex flex-wrap gap-1.5">
+                        {% for member in members %}
+                        <label class="cursor-pointer flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border transition-colors"
+                               x-data="{ on: false }"
+                               :class="on ? 'border-primary bg-primary/10 text-on-surface' : 'border-outline-variant text-on-surface-variant'">
+                            <input type="checkbox" name="assignees" value="{{ member.id }}" class="hidden" @change="on = $event.target.checked">
+                            {{ member.get_full_name_or_username }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button class="rounded-lg bg-primary text-on-primary font-semibold text-xs py-2 px-3 hover:opacity-90 active:scale-95 transition" type="submit">Añadir</button>
+                <button class="rounded-lg text-on-surface-variant text-xs py-2 px-3 hover:bg-surface-variant transition" type="button" @click="addCard = false; more = false">Cancelar</button>
             </div>
         </form>
     </section>
     {% endfor %}
 
-    {# Formulario para nueva columna #}
-    <div class="column-add-wrapper">
-        <button type="button" class="column-add-btn" id="add-column-toggle"
-                onclick="document.getElementById('column-form').style.display='flex'; this.style.display='none'; document.getElementById('column-form').querySelector('input[type=text]').focus();">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-            Nueva columna
+    {# Añadir columna #}
+    <div class="column-add-wrapper flex-shrink-0 w-[300px]" x-data="{ open: false }" @keydown.escape.window="open = false">
+        <button type="button" x-show="!open"
+                @click="open = true; $nextTick(() => $refs.colTitle.focus())"
+                class="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-outline-variant text-on-surface-variant hover:text-accent hover:border-accent transition-colors">
+            <span class="material-symbols-outlined text-[20px]">add</span> Nueva columna
         </button>
-        <form method="post" action="{% url 'column-create' board_id=board.id %}"
-              class="column-form" id="column-form" style="display:none">
+        <form method="post" action="{% url 'column-create' board_id=board.id %}" class="rounded-xl bg-surface-container-low border border-outline-variant p-2 space-y-2" x-show="open" x-cloak>
             {% csrf_token %}
-            <input class="column-form__title card-form__title" type="text" name="title"
-                   placeholder="Nombre de la columna..." autocomplete="off"
-                   aria-label="Nombre de la columna" required>
-            <div class="card-form__actions">
-                <button class="card-form__submit" type="submit">Añadir</button>
-                <button class="card-form__cancel" type="button"
-                        onclick="this.closest('form').style.display='none'; document.getElementById('add-column-toggle').style.display='';">
-                    Cancelar
-                </button>
+            <input class="w-full bg-surface-container rounded-lg p-2.5 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:ring-1 focus:ring-primary" type="text" name="title" x-ref="colTitle" placeholder="Nombre de la columna..." autocomplete="off" aria-label="Nombre de la columna" required>
+            <div class="flex items-center gap-2">
+                <button class="rounded-lg bg-primary text-on-primary font-semibold text-xs py-2 px-3 hover:opacity-90 active:scale-95 transition" type="submit">Añadir</button>
+                <button class="rounded-lg text-on-surface-variant text-xs py-2 px-3 hover:bg-surface-variant transition" type="button" @click="open = false">Cancelar</button>
             </div>
         </form>
     </div>
 </main>
+</div>
 {% endblock %}
 
 {% block scripts %}

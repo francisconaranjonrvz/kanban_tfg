@@ -1,0 +1,47 @@
+{% comment %}
+Cabecera común de las vistas de un tablero: migas, título, avatares,
+contador y selector de vista (kanban/lista/tabla/calendario).
+Requiere: board, members, total_cards, current_view.
+{% endcomment %}
+<div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
+        <div class="flex items-center gap-1.5 mb-1 text-[11px] font-display uppercase tracking-widest">
+            <a href="{% url 'home' %}" class="text-accent hover:underline">Mis tableros</a>
+            <span class="text-on-surface-variant">/ {{ active_organization.name|default:'Flowly' }}</span>
+        </div>
+        <h1 class="font-display text-xl md:text-2xl font-bold text-on-surface truncate">{{ board.name }}</h1>
+    </div>
+
+    <div class="flex items-center gap-3 shrink-0">
+        <div class="hidden sm:flex -space-x-2">
+            {% for member in members|slice:":4" %}
+            {% include 'partials/_avatar.html' with profile_user=member size='w-8 h-8 text-[11px]' ring='border-2 border-background' only %}
+            {% endfor %}
+        </div>
+        <span class="hidden sm:inline-flex items-center gap-1.5 text-on-surface-variant text-sm">
+            <span class="material-symbols-outlined text-[18px]">task_alt</span>{{ total_cards }}
+        </span>
+
+        {# Selector de vista #}
+        {% with vbase='w-8 h-8 rounded-md flex items-center justify-center transition-colors' %}
+        <div class="flex items-center gap-0.5 rounded-lg bg-surface-container-low border border-outline-variant p-0.5">
+            <a href="?view=kanban" title="Tablero" aria-label="Vista tablero"
+               class="{{ vbase }} {% if current_view == 'kanban' %}bg-surface-variant text-accent{% else %}text-on-surface-variant hover:text-on-surface{% endif %}">
+                <span class="material-symbols-outlined text-[19px]">view_kanban</span>
+            </a>
+            <a href="?view=list" title="Lista" aria-label="Vista lista"
+               class="{{ vbase }} {% if current_view == 'list' %}bg-surface-variant text-accent{% else %}text-on-surface-variant hover:text-on-surface{% endif %}">
+                <span class="material-symbols-outlined text-[19px]">view_list</span>
+            </a>
+            <a href="?view=table" title="Tabla" aria-label="Vista tabla"
+               class="{{ vbase }} {% if current_view == 'table' %}bg-surface-variant text-accent{% else %}text-on-surface-variant hover:text-on-surface{% endif %}">
+                <span class="material-symbols-outlined text-[19px]">table_rows</span>
+            </a>
+            <a href="?view=calendar" title="Calendario" aria-label="Vista calendario"
+               class="{{ vbase }} {% if current_view == 'calendar' %}bg-surface-variant text-accent{% else %}text-on-surface-variant hover:text-on-surface{% endif %}">
+                <span class="material-symbols-outlined text-[19px]">calendar_month</span>
+            </a>
+        </div>
+        {% endwith %}
+    </div>
+</div>

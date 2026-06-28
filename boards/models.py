@@ -9,6 +9,13 @@ class Board(models.Model):
 
     name = models.CharField(max_length=128)
     description = models.TextField(blank=True)
+    organization = models.ForeignKey(
+        'organizations.Organization',
+        on_delete=models.CASCADE,
+        related_name='boards',
+        null=True,
+        blank=True,
+    )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

@@ -2,97 +2,40 @@
 
 import json
 
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
-from rest_framework import permissions, status, viewsets
-from rest_framework.decorators import action
-from rest_framework.response import Response
 
 from boards.models import Board, Column
-from boards.permissions import IsBoardMember, user_can_access_board
+from boards.permissions import user_can_access_board
 
-from .models import Card
-from .serializers import CardSerializer
+from .models import Card, Comment, Subtask
 
-
-# =============================================
-#  Vista DRF (API REST) — se mantiene
-# =============================================
-
-class CardViewSet(viewsets.ModelViewSet):
-    """CRUD y reordenación de tarjetas."""
-
-    serializer_class = CardSerializer
-    permission_classes = [permissions.IsAuthenticated, IsBoardMember]
-    pagination_class = None
-
-    def get_queryset(self):
-        user = self.request.user
-        return (
-            Card.objects
-            .filter(Q(column__board__owner=user) | Q(column__board__members=user))
-            .distinct()
-            .select_related('column', 'assignee')
-            .prefetch_related('labels')
-        )
-
-    def perform_create(self, serializer):
-        column = serializer.validated_data['column']
-        if not user_can_access_board(self.request.user, column.board):
-            self.permission_denied(self.request, message='Cannot add card to this board.')
-        serializer.save()
-
-    @action(detail=True, methods=['post'])
-    def move(self, request, pk=None):
-        """Mueve la tarjeta a otra columna/posición (drag & drop)."""
-        card = self.get_object()
-        try:
-            target_column_id = int(request.data['column_id'])
-            target_order = int(request.data['order'])
-        except (KeyError, TypeError, ValueError):
-            return Response(
-                {'detail': 'column_id and order are required integers.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        target_column = get_object_or_404(Column, pk=target_column_id)
-        if not user_can_access_board(request.user, target_column.board):
-            return Response(
-                {'detail': 'Cannot move card to a board you do not belong to.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        with transaction.atomic():
-            source_column = card.column
-            source_order = card.order
-
-            card.column = target_column
-            card.save(update_fields=['column'])
-
-            if source_column.id != target_column.id:
-                Card.objects.filter(
-                    column=source_column,
-                    order__gt=source_order,
-                ).update(order=F('order') - 1)
-
-            Card.objects.filter(
-                column=target_column,
-                order__gte=target_order,
-            ).exclude(pk=card.pk).update(order=F('order') + 1)
-
-            card.order = target_order
-            card.save(update_fields=['order'])
-
-        return Response(CardSerializer(card).data)
+User = get_user_model()
 
 
-# =============================================
-#  Vistas con templates (server-side rendering)
-# =============================================
+def _board_members(board):
+    """Usuarios candidatos a asignar: dueño + miembros del tablero."""
+    ids = {board.owner_id}
+    ids.update(board.members.values_list('id', flat=True))
+    return User.objects.filter(id__in=ids).order_by('username')
+
+
+def _get_card_or_403(request, board_id, card_id):
+    """Devuelve (card, board) si el usuario tiene acceso, o lanza 403."""
+    card = get_object_or_404(
+        Card.objects.select_related('column__board'),
+        pk=card_id, column__board_id=board_id,
+    )
+    board = card.column.board
+    if not user_can_access_board(request.user, board):
+        return None, None
+    return card, board
+
 
 @login_required
 @require_POST
@@ -112,7 +55,7 @@ def card_create_view(request, board_id):
 
     due = request.POST.get('due_date', '').strip() or None
 
-    Card.objects.create(
+    card = Card.objects.create(
         column=column,
         title=title,
         description=request.POST.get('description', '').strip(),
@@ -120,6 +63,22 @@ def card_create_view(request, board_id):
         due_date=due,
         order=order,
     )
+
+    # Etiquetas (acotadas al tablero) y asignados (acotados a sus miembros).
+    label_ids = request.POST.getlist('labels')
+    if label_ids:
+        valid_labels = column.board.labels.filter(id__in=label_ids)
+        card.labels.set(valid_labels)
+
+    assignee_ids = request.POST.getlist('assignees')
+    if assignee_ids:
+        member_ids = set(_board_members(column.board).values_list('id', flat=True))
+        valid_assignees = [int(i) for i in assignee_ids if int(i) in member_ids]
+        if valid_assignees:
+            card.assignees.set(valid_assignees)
+            card.assignee = card.assignees.first()
+            card.save(update_fields=['assignee'])
+
     return redirect('board-detail', board_id=board_id)
 
 
@@ -151,11 +110,21 @@ def card_edit_view(request, board_id, card_id):
         label_ids = request.POST.getlist('labels')
         card.labels.set(label_ids)
 
-        return redirect('board-detail', board_id=board_id)
+        assignee_ids = request.POST.getlist('assignees')
+        member_ids = set(_board_members(board).values_list('id', flat=True))
+        valid_assignees = [int(i) for i in assignee_ids if int(i) in member_ids]
+        card.assignees.set(valid_assignees)
+        # Mantener el FK assignee sincronizado con el primer asignado (compat).
+        card.assignee = card.assignees.first()
+        card.save(update_fields=['assignee'])
+
+        return redirect('card-edit', board_id=board_id, card_id=card.id)
 
     labels = board.labels.all()
     columns = board.columns.order_by('order')
     card_label_ids = set(card.labels.values_list('id', flat=True))
+    members = _board_members(board)
+    card_assignee_ids = set(card.assignees.values_list('id', flat=True))
 
     return render(request, 'card_edit.html', {
         'board': board,
@@ -163,6 +132,10 @@ def card_edit_view(request, board_id, card_id):
         'labels': labels,
         'columns': columns,
         'card_label_ids': card_label_ids,
+        'members': members,
+        'card_assignee_ids': card_assignee_ids,
+        'subtasks': card.subtasks.all(),
+        'comments': card.comments.select_related('author').all(),
     })
 
 
@@ -220,3 +193,88 @@ def plantillas_api_view(request):
     """API interna: plantillas de tareas sugeridas."""
     from .plantillas_data import PLANTILLAS
     return JsonResponse(PLANTILLAS, safe=False)
+
+
+# ---- Subtareas (checklist) ----
+
+def _render_subtasks(request, card, board):
+    return render(request, 'partials/_subtasks.html', {
+        'card': card,
+        'board': board,
+        'subtasks': card.subtasks.all(),
+    })
+
+
+@login_required
+@require_POST
+def subtask_create_view(request, board_id, card_id):
+    """Añadir un elemento de checklist a la tarjeta (HTMX)."""
+    card, board = _get_card_or_403(request, board_id, card_id)
+    if card is None:
+        return HttpResponseForbidden()
+    title = request.POST.get('title', '').strip()
+    if title:
+        last = card.subtasks.order_by('-order').first()
+        order = (last.order + 1) if last else 0
+        Subtask.objects.create(card=card, title=title, order=order)
+    return _render_subtasks(request, card, board)
+
+
+@login_required
+@require_POST
+def subtask_toggle_view(request, board_id, card_id, subtask_id):
+    """Marcar/desmarcar una subtarea (HTMX)."""
+    card, board = _get_card_or_403(request, board_id, card_id)
+    if card is None:
+        return HttpResponseForbidden()
+    subtask = get_object_or_404(Subtask, pk=subtask_id, card=card)
+    subtask.is_done = not subtask.is_done
+    subtask.save(update_fields=['is_done'])
+    return _render_subtasks(request, card, board)
+
+
+@login_required
+@require_POST
+def subtask_delete_view(request, board_id, card_id, subtask_id):
+    """Eliminar una subtarea (HTMX)."""
+    card, board = _get_card_or_403(request, board_id, card_id)
+    if card is None:
+        return HttpResponseForbidden()
+    Subtask.objects.filter(pk=subtask_id, card=card).delete()
+    return _render_subtasks(request, card, board)
+
+
+# ---- Comentarios ----
+
+def _render_comments(request, card, board):
+    return render(request, 'partials/_comments.html', {
+        'card': card,
+        'board': board,
+        'comments': card.comments.select_related('author').all(),
+    })
+
+
+@login_required
+@require_POST
+def comment_create_view(request, board_id, card_id):
+    """Añadir un comentario a la tarjeta (HTMX)."""
+    card, board = _get_card_or_403(request, board_id, card_id)
+    if card is None:
+        return HttpResponseForbidden()
+    body = request.POST.get('body', '').strip()
+    if body:
+        Comment.objects.create(card=card, author=request.user, body=body)
+    return _render_comments(request, card, board)
+
+
+@login_required
+@require_POST
+def comment_delete_view(request, board_id, card_id, comment_id):
+    """Eliminar un comentario propio (o si es dueño del tablero) (HTMX)."""
+    card, board = _get_card_or_403(request, board_id, card_id)
+    if card is None:
+        return HttpResponseForbidden()
+    comment = get_object_or_404(Comment, pk=comment_id, card=card)
+    if comment.author_id == request.user.id or board.owner_id == request.user.id:
+        comment.delete()
+    return _render_comments(request, card, board)

@@ -15,37 +15,6 @@
         return match ? decodeURIComponent(match[1]) : '';
     }
 
-    // API externa: consejo aleatorio (adviceslip.com)
-    var quoteEl = document.getElementById('daily-quote');
-    if (quoteEl) {
-        fetch('https://api.adviceslip.com/advice')
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (data.slip && data.slip.advice) {
-                    quoteEl.textContent = '\u201C' + data.slip.advice + '\u201D';
-                }
-            })
-            .catch(function () {});
-    }
-
-    // API externa: colaboradores (randomuser.me)
-    var teamEl = document.getElementById('team-members');
-    if (teamEl) {
-        fetch('https://randomuser.me/api/?results=3&nat=es')
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (!data.results || !data.results.length) return;
-                var countEl = document.querySelector('[data-stat="member-count"]');
-                if (countEl) countEl.textContent = data.results.length;
-                teamEl.innerHTML = data.results.map(function (u) {
-                    var name = u.name.first + ' ' + u.name.last;
-                    return '<img class="team-avatar" src="' + esc(u.picture.thumbnail)
-                        + '" alt="' + esc(name) + '" title="' + esc(name) + '">';
-                }).join('');
-            })
-            .catch(function () {});
-    }
-
     // API interna: plantillas de tareas (/api/plantillas)
     var suggestionsEl = document.getElementById('suggestions');
     var boardEl = document.getElementById('board');

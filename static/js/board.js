@@ -171,36 +171,6 @@
     });
   }
 
-  // --- Cerrar menús de columna al hacer clic fuera ---
-  document.addEventListener('click', function (e) {
-    if (!e.target.closest('.column__actions')) {
-      document.querySelectorAll('.column-menu.is-open').forEach(function (m) {
-        m.classList.remove('is-open');
-      });
-    }
-  });
-
-  // Escape cierra menús y formularios inline
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-
-    document.querySelectorAll('.column-menu.is-open').forEach(function (m) {
-      m.classList.remove('is-open');
-    });
-
-    // Cerrar formularios inline de tarjetas
-    document.querySelectorAll('.card-form[style*="flex"]').forEach(function (f) {
-      f.style.display = 'none';
-      var btn = f.previousElementSibling;
-      if (btn) btn.style.display = '';
-    });
-
-    // Cerrar formulario de columna
-    var colForm = document.getElementById('column-form');
-    if (colForm && colForm.style.display !== 'none') {
-      colForm.style.display = 'none';
-      var toggle = document.getElementById('add-column-toggle');
-      if (toggle) toggle.style.display = '';
-    }
-  });
+  // Los menús de columna y los formularios inline (abrir/cerrar, Escape,
+  // clic-fuera) los gestiona Alpine en board.html.
 })();

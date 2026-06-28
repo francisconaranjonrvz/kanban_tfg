@@ -58,8 +58,8 @@
 
 .card__delete:hover {
     color: var(--color-error);
-    background: rgba(248, 113, 113, 0.1);
-    border-color: rgba(248, 113, 113, 0.25);
+    background: rgb(var(--brand-error) / 0.1);
+    border-color: rgb(var(--brand-error) / 0.25);
 }
 
 .card__header {

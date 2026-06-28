@@ -1,13 +1,11 @@
-# Kanban TFG — Python Dependencies
+# Flowly — Python Dependencies
 # Pin major versions to avoid breaking changes; allow patch updates.
 
-Django>=4.2,<5.0                        # LTS release, stable and well-documented
-djangorestframework>=3.14,<4.0          # Industry-standard REST API toolkit
-djangorestframework-simplejwt>=5.3,<6.0 # JWT auth (stateless, scalable)
-django-cors-headers>=4.3,<5.0           # CORS for frontend-backend communication
+Django>=6.0,<6.1                        # Current stable; supports Python 3.12–3.14
+django-environ>=0.12,<1.0                # Environment-based settings (.env, DATABASE_URL)
 
-# Production-only deps (safely no-op in dev: SQLite + runserver ignore them)
-gunicorn>=21.2,<23.0                    # WSGI server for production
+# Production-only deps (safely no-op in dev under runserver)
+gunicorn>=23.0,<27.0                    # WSGI server for production
 whitenoise>=6.6,<7.0                    # Serve hashed static files from WSGI
 psycopg2-binary>=2.9,<3.0               # PostgreSQL driver
-dj-database-url>=2.1,<3.0               # DATABASE_URL (Render, etc.)
+Pillow>=10.4,<13.0                      # Image processing for User.avatar (ImageField)

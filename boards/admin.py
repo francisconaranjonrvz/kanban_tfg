@@ -6,8 +6,8 @@ from django.utils.html import format_html
 from .models import Board, BoardMembership, Column, Label
 
 
-admin.site.site_header = 'Kanban TFG · Administración'
-admin.site.site_title = 'Kanban TFG admin'
+admin.site.site_header = 'Flowly · Administración'
+admin.site.site_title = 'Flowly admin'
 admin.site.index_title = 'Panel de control'
 
 
@@ -34,11 +34,11 @@ class MembershipInline(admin.TabularInline):
 
 @admin.register(Board)
 class BoardAdmin(admin.ModelAdmin):
-    list_display = ('name', 'owner', 'column_count', 'card_count', 'updated_at')
-    list_filter = ('owner', 'created_at')
+    list_display = ('name', 'organization', 'owner', 'column_count', 'card_count', 'updated_at')
+    list_filter = ('organization', 'owner', 'created_at')
     search_fields = ('name', 'description', 'owner__username')
     date_hierarchy = 'updated_at'
-    autocomplete_fields = ['owner']
+    autocomplete_fields = ['owner', 'organization']
     inlines = [MembershipInline, ColumnInline, LabelInline]
     readonly_fields = ('created_at', 'updated_at')
 

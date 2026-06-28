@@ -33,6 +33,12 @@ class Card(models.Model):
         null=True,
         blank=True,
         related_name='assigned_cards',
+        help_text='Asignado principal (compatibilidad). Ver tambien assignees.',
+    )
+    assignees = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='cards',
     )
     labels = models.ManyToManyField(
         'boards.Label',
@@ -62,3 +68,69 @@ class Card(models.Model):
     def board(self):
         """Atajo para acceder al tablero a través de la columna."""
         return self.column.board
+
+    @property
+    def subtask_total(self):
+        """Numero total de subtareas."""
+        return self.subtasks.count()
+
+    @property
+    def subtask_done(self):
+        """Numero de subtareas completadas."""
+        return self.subtasks.filter(is_done=True).count()
+
+    @property
+    def progress(self):
+        """Porcentaje de subtareas completadas (0-100)."""
+        total = self.subtask_total
+        if not total:
+            return 0
+        return round(self.subtask_done * 100 / total)
+
+
+class Subtask(models.Model):
+    """Elemento de checklist dentro de una tarjeta."""
+
+    card = models.ForeignKey(
+        Card,
+        on_delete=models.CASCADE,
+        related_name='subtasks',
+    )
+    title = models.CharField(max_length=256)
+    is_done = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+        verbose_name = 'subtask'
+        verbose_name_plural = 'subtasks'
+
+    def __str__(self):
+        return self.title
+
+
+class Comment(models.Model):
+    """Comentario en una tarjeta."""
+
+    card = models.ForeignKey(
+        Card,
+        on_delete=models.CASCADE,
+        related_name='comments',
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='comments',
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'comment'
+        verbose_name_plural = 'comments'
+
+    def __str__(self):
+        return f'{self.author}: {self.body[:40]}'

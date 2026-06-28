@@ -1,167 +1,330 @@
-# Tests de la API de tableros, columnas, etiquetas y miembros.
+# Tests de tableros, columnas y permisos (vistas con templates + sesión).
+
+import json
 
 from django.contrib.auth import get_user_model
-from rest_framework import status
-from rest_framework.test import APITestCase
+from django.test import TestCase
+from django.urls import reverse
 
-from boards.models import Board, BoardMembership, Column, Label
+from boards.models import Board, BoardMembership, Column
 
 User = get_user_model()
 
 
-class BoardsAPITests(APITestCase):
+class BoardViewsTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.alice = User.objects.create_user(username='alice', password='alicepass1')
         cls.bob = User.objects.create_user(username='bob', password='bobpass1234')
 
-    def auth(self, user):
-        resp = self.client.post(
-            '/api/v1/auth/token/',
-            {'username': user.username, 'password': 'alicepass1' if user.username == 'alice' else 'bobpass1234'},
-            format='json',
-        )
-        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + resp.data['access'])
+    def login(self, user):
+        password = 'alicepass1' if user.username == 'alice' else 'bobpass1234'
+        self.client.login(username=user.username, password=password)
 
-    # --- Tableros ---
+    # --- Acceso sin autenticar ---
 
-    def test_create_and_list_board(self):
-        self.auth(self.alice)
-        r = self.client.post('/api/v1/boards/', {'name': 'TFG', 'description': 'x'}, format='json')
-        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(r.data['name'], 'TFG')
+    def test_home_requires_login(self):
+        resp = self.client.get(reverse('home'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse('login'), resp.url)
 
-        r = self.client.get('/api/v1/boards/')
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(r.data), 1)
+    # --- Crear y listar tableros ---
 
-    def test_isolation_between_users(self):
-        b = Board.objects.create(owner=self.alice, name='Solo Alice')
-        self.auth(self.bob)
-        self.assertEqual(self.client.get('/api/v1/boards/').data, [])
-        self.assertEqual(
-            self.client.get(f'/api/v1/boards/{b.id}/').status_code, status.HTTP_404_NOT_FOUND,
-        )
-        self.assertEqual(
-            self.client.delete(f'/api/v1/boards/{b.id}/').status_code, status.HTTP_404_NOT_FOUND,
-        )
+    def test_create_board_with_default_columns(self):
+        self.login(self.alice)
+        resp = self.client.post(reverse('board-create'), {'name': 'TFG', 'description': 'x'})
+        board = Board.objects.get(name='TFG')
+        self.assertRedirects(resp, reverse('board-detail', args=[board.pk]))
+        self.assertEqual(board.owner, self.alice)
+        self.assertEqual(list(board.columns.order_by('order').values_list('title', flat=True)),
+                          ['Pendiente', 'En Progreso', 'Completado'])
+
+    def test_home_lists_only_own_and_member_boards(self):
+        Board.objects.create(owner=self.alice, name='Solo Alice')
+        shared = Board.objects.create(owner=self.bob, name='Shared')
+        BoardMembership.objects.create(user=self.alice, board=shared)
+        Board.objects.create(owner=self.bob, name='Solo Bob')
+
+        self.login(self.alice)
+        resp = self.client.get(reverse('home'))
+        names = {b.name for b in resp.context['boards']}
+        self.assertEqual(names, {'Solo Alice', 'Shared'})
+
+    # --- Aislamiento entre usuarios ---
+
+    def test_other_user_cannot_view_board(self):
+        board = Board.objects.create(owner=self.alice, name='Solo Alice')
+        self.login(self.bob)
+        resp = self.client.get(reverse('board-detail', args=[board.pk]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_only_owner_can_delete_board(self):
+        board = Board.objects.create(owner=self.alice, name='B')
+        self.login(self.bob)
+        resp = self.client.post(reverse('board-delete', args=[board.pk]))
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Board.objects.filter(pk=board.pk).exists())
+
+        self.login(self.alice)
+        resp = self.client.post(reverse('board-delete', args=[board.pk]))
+        self.assertRedirects(resp, reverse('home'))
+        self.assertFalse(Board.objects.filter(pk=board.pk).exists())
+
+    def test_member_can_view_board_but_not_delete(self):
+        board = Board.objects.create(owner=self.alice, name='Shared')
+        BoardMembership.objects.create(user=self.bob, board=board)
+
+        self.login(self.bob)
+        resp = self.client.get(reverse('board-detail', args=[board.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+        resp = self.client.post(reverse('board-delete', args=[board.pk]))
+        self.assertEqual(resp.status_code, 403)
 
     # --- Columnas + reordenar ---
 
     def test_columns_get_sequential_orders(self):
-        self.auth(self.alice)
-        b = Board.objects.create(owner=self.alice, name='B')
+        self.login(self.alice)
+        board = Board.objects.create(owner=self.alice, name='B')
         for title in ('A', 'B', 'C'):
-            self.client.post(f'/api/v1/boards/{b.id}/columns/', {'title': title}, format='json')
-        cols = list(b.columns.order_by('order'))
+            self.client.post(reverse('column-create', args=[board.pk]), {'title': title})
+        cols = list(board.columns.order_by('order'))
         self.assertEqual([c.order for c in cols], [0, 1, 2])
 
-    def test_column_move_reorders_and_avoids_unique_collision(self):
-        self.auth(self.alice)
-        b = Board.objects.create(owner=self.alice, name='B')
-        c1 = Column.objects.create(board=b, title='A', order=0)
-        c2 = Column.objects.create(board=b, title='B', order=1)
-        c3 = Column.objects.create(board=b, title='C', order=2)
-        r = self.client.post(f'/api/v1/boards/{b.id}/columns/{c3.id}/move/', {'order': 0}, format='json')
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+    def test_column_move_reorders(self):
+        self.login(self.alice)
+        board = Board.objects.create(owner=self.alice, name='B')
+        c1 = Column.objects.create(board=board, title='A', order=0)
+        c2 = Column.objects.create(board=board, title='B', order=1)
+        c3 = Column.objects.create(board=board, title='C', order=2)
+
+        resp = self.client.post(
+            reverse('column-move', args=[board.pk]),
+            data=json.dumps({'column_id': c3.id, 'order': 0}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
         c1.refresh_from_db(); c2.refresh_from_db(); c3.refresh_from_db()
         self.assertEqual([c3.order, c1.order, c2.order], [0, 1, 2])
 
-    # --- Tarjetas: crear + mover + permisos ---
-
-    def test_card_move_reorders_within_and_across_columns(self):
-        self.auth(self.alice)
-        b = Board.objects.create(owner=self.alice, name='B')
-        col1 = Column.objects.create(board=b, title='To Do', order=0)
-        col2 = Column.objects.create(board=b, title='Done', order=1)
-        c1 = self.client.post('/api/v1/tasks/', {'title': 'one', 'column': col1.id}, format='json').data
-        c2 = self.client.post('/api/v1/tasks/', {'title': 'two', 'column': col1.id}, format='json').data
-        r = self.client.post(f'/api/v1/tasks/{c2["id"]}/move/', {'column_id': col2.id, 'order': 0}, format='json')
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        from tasks.models import Card
-        c1_db = Card.objects.get(pk=c1['id'])
-        c2_db = Card.objects.get(pk=c2['id'])
-        self.assertEqual((c1_db.column_id, c1_db.order), (col1.id, 0))
-        self.assertEqual((c2_db.column_id, c2_db.order), (col2.id, 0))
-
-    def test_other_user_cannot_move_my_card(self):
-        b = Board.objects.create(owner=self.alice, name='B')
-        col = Column.objects.create(board=b, title='X', order=0)
-        from tasks.models import Card
-        card = Card.objects.create(column=col, title='secret', order=0)
-        self.auth(self.bob)
-        r = self.client.post(f'/api/v1/tasks/{card.id}/move/', {'column_id': col.id, 'order': 1}, format='json')
-        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
-
-    # --- Miembros ---
-
-    def test_owner_can_invite_and_remove_member(self):
-        self.auth(self.alice)
-        b = Board.objects.create(owner=self.alice, name='Shared')
-        r = self.client.post(f'/api/v1/boards/{b.id}/members/', {'username': 'bob'}, format='json')
-        self.assertIn(r.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
-        self.assertTrue(BoardMembership.objects.filter(board=b, user=self.bob).exists())
-
-        self.auth(self.bob)
-        self.assertEqual(self.client.get(f'/api/v1/boards/{b.id}/').status_code, status.HTTP_200_OK)
-
-        r = self.client.post(f'/api/v1/boards/{b.id}/members/', {'username': 'alice'}, format='json')
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
-
-        self.auth(self.alice)
-        r = self.client.delete(f'/api/v1/boards/{b.id}/members/{self.bob.id}/')
-        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(BoardMembership.objects.filter(board=b, user=self.bob).exists())
-
-    def test_invite_nonexistent_user_returns_404(self):
-        self.auth(self.alice)
-        b = Board.objects.create(owner=self.alice, name='X')
-        r = self.client.post(f'/api/v1/boards/{b.id}/members/', {'username': 'noone'}, format='json')
-        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
-
-    # --- Etiquetas ---
-
-    def test_label_create_and_attach_to_card(self):
-        self.auth(self.alice)
-        b = Board.objects.create(owner=self.alice, name='B')
-        col = Column.objects.create(board=b, title='X', order=0)
-        lbl = self.client.post(
-            f'/api/v1/boards/{b.id}/labels/', {'name': 'Bug', 'color': '#ef4444'}, format='json',
-        ).data
-        card = self.client.post(
-            '/api/v1/tasks/', {'title': 'fix it', 'column': col.id, 'label_ids': [lbl['id']]}, format='json',
-        ).data
-        from tasks.models import Card
-        self.assertEqual(list(Card.objects.get(pk=card['id']).labels.values_list('id', flat=True)), [lbl['id']])
-
-
-class AuthAPITests(APITestCase):
-    def test_register_login_me(self):
-        r = self.client.post(
-            '/api/v1/auth/register/',
-            {'username': 'curro', 'email': 'c@example.com', 'password': 'currotfg2026'},
-            format='json',
+    def test_other_user_cannot_move_column(self):
+        board = Board.objects.create(owner=self.alice, name='B')
+        col = Column.objects.create(board=board, title='A', order=0)
+        self.login(self.bob)
+        resp = self.client.post(
+            reverse('column-move', args=[board.pk]),
+            data=json.dumps({'column_id': col.id, 'order': 0}),
+            content_type='application/json',
         )
-        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.status_code, 403)
 
-        r = self.client.post(
-            '/api/v1/auth/token/',
-            {'username': 'curro', 'password': 'currotfg2026'}, format='json',
+
+class DesignSystemTests(TestCase):
+    """Sistema de diseño Flowly (Paso 3): assets, identidad y tema."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='dani', password='danipass1')
+
+    def test_base_layout_ships_design_assets_and_identity(self):
+        self.client.login(username='dani', password='danipass1')
+        board = Board.objects.create(owner=self.user, name='Tablero')
+        resp = self.client.get(reverse('board-detail', args=[board.pk]))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        # Hojas de estilo del sistema de diseño + utilidades Tailwind
+        self.assertIn('design-system', html)
+        self.assertIn('tailwind.build', html)
+        # Librerías de interacción vendorizadas (sin CDN)
+        self.assertIn('vendor/htmx.min', html)
+        self.assertIn('vendor/alpine.min', html)
+        # App-shell: marca data-brand + navegación lateral
+        self.assertIn('data-brand=', html)
+        self.assertIn('Flowly', html)
+        self.assertIn('Tableros', html)
+        # Script anti-FOUC que fija el tema antes del primer paint
+        self.assertIn("setAttribute('data-theme'", html)
+
+
+class ColumnRenameHtmxTests(TestCase):
+    """La renombrada de columna se enriquece con HTMX pero degrada a redirect."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='eva', password='evapass1234')
+        cls.board = Board.objects.create(owner=cls.user, name='B')
+        cls.col = Column.objects.create(board=cls.board, title='To Do', order=0)
+
+    def setUp(self):
+        self.client.login(username='eva', password='evapass1234')
+
+    def test_htmx_request_returns_partial_not_full_page(self):
+        resp = self.client.post(
+            reverse('column-rename', args=[self.board.pk, self.col.pk]),
+            {'title': 'En curso'},
+            HTTP_HX_REQUEST='true',
         )
-        self.assertIn('access', r.data)
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        # Solo el parcial del título, no el layout completo
+        self.assertIn('En curso', html)
+        self.assertIn(f'id="column-title-{self.col.pk}"', html)
+        self.assertNotIn('<!DOCTYPE', html)
+        self.assertNotIn('topbar__brand', html)
+        self.col.refresh_from_db()
+        self.assertEqual(self.col.title, 'En curso')
 
-        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + r.data['access'])
-        r = self.client.get('/api/v1/auth/me/')
-        self.assertEqual(r.data['username'], 'curro')
-
-    def test_unauthenticated_request_rejected(self):
-        self.assertEqual(self.client.get('/api/v1/boards/').status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_duplicate_username_rejected(self):
-        User.objects.create_user(username='taken', password='pass1234')
-        r = self.client.post(
-            '/api/v1/auth/register/',
-            {'username': 'taken', 'email': 't@example.com', 'password': 'goodpass1'},
-            format='json',
+    def test_plain_request_redirects_to_board(self):
+        resp = self.client.post(
+            reverse('column-rename', args=[self.board.pk, self.col.pk]),
+            {'title': 'Hecho'},
         )
-        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertRedirects(resp, reverse('board-detail', args=[self.board.pk]))
+        self.col.refresh_from_db()
+        self.assertEqual(self.col.title, 'Hecho')
+
+
+class CalendarViewTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from datetime import date
+        from tasks.models import Card
+
+        cls.alice = User.objects.create_user(username='alice', password='alicepass1')
+        cls.board = Board.objects.create(name='Cal', owner=cls.alice)
+        cls.col = Column.objects.create(board=cls.board, title='To Do', order=0)
+        cls.in_month = Card.objects.create(
+            column=cls.col, title='Entrega mensual', order=0,
+            due_date=date(2026, 6, 15), priority=4,
+        )
+        cls.other_month = Card.objects.create(
+            column=cls.col, title='Fuera de mes', order=1,
+            due_date=date(2026, 9, 1), priority=1,
+        )
+        cls.no_due = Card.objects.create(column=cls.col, title='Sin fecha', order=2)
+
+    def test_calendar_requires_login(self):
+        resp = self.client.get(reverse('calendario'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_calendar_shows_card_in_month(self):
+        self.client.login(username='alice', password='alicepass1')
+        resp = self.client.get(reverse('calendario'), {'year': 2026, 'month': 6})
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertIn('Junio 2026', html)
+        self.assertIn('Entrega mensual', html)
+        self.assertNotIn('Fuera de mes', html)
+        self.assertNotIn('Sin fecha', html)
+
+    def test_calendar_priority_filter(self):
+        self.client.login(username='alice', password='alicepass1')
+        resp = self.client.get(reverse('calendario'), {'year': 2026, 'month': 6, 'priority': 1})
+        self.assertNotIn('Entrega mensual', resp.content.decode())
+
+    def test_calendar_invalid_month_falls_back(self):
+        self.client.login(username='alice', password='alicepass1')
+        resp = self.client.get(reverse('calendario'), {'year': 'x', 'month': '99'})
+        self.assertEqual(resp.status_code, 200)
+
+
+class TeamViewTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from organizations.models import Organization, OrganizationMembership
+        from tasks.models import Card
+
+        cls.alice = User.objects.create_user(username='alice', password='alicepass1')
+        cls.bob = User.objects.create_user(username='bob', password='bobpass1234')
+        cls.org = Organization.objects.create(name='Acme')
+        OrganizationMembership.objects.create(
+            organization=cls.org, user=cls.alice,
+            role=OrganizationMembership.Role.OWNER,
+        )
+        OrganizationMembership.objects.create(
+            organization=cls.org, user=cls.bob,
+            role=OrganizationMembership.Role.MEMBER,
+        )
+        cls.board = Board.objects.create(name='B', owner=cls.alice, organization=cls.org)
+        BoardMembership.objects.create(board=cls.board, user=cls.bob)
+        cls.todo = Column.objects.create(board=cls.board, title='Pendiente', order=0)
+        cls.done = Column.objects.create(board=cls.board, title='Completado', order=1)
+        # 9 tareas activas para bob -> supera capacidad (8) -> saturado
+        for i in range(9):
+            card = Card.objects.create(column=cls.todo, title=f'T{i}', order=i)
+            card.assignees.add(cls.bob)
+        # 1 tarea terminada (no cuenta como carga)
+        done_card = Card.objects.create(column=cls.done, title='Done', order=0)
+        done_card.assignees.add(cls.bob)
+
+    def _activate_org(self):
+        session = self.client.session
+        session['active_org_id'] = self.org.id
+        session.save()
+
+    def test_team_requires_login(self):
+        resp = self.client.get(reverse('equipo'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_team_lists_members_and_overload(self):
+        self.client.login(username='alice', password='alicepass1')
+        self._activate_org()
+        resp = self.client.get(reverse('equipo'))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        self.assertIn('alice', html)
+        self.assertIn('bob', html)
+        # bob con 9 activas (>85% de 8) debe marcarse como saturado
+        self.assertIn('Saturado', html)
+
+    def test_done_column_excluded_from_load(self):
+        self.client.login(username='alice', password='alicepass1')
+        self._activate_org()
+        resp = self.client.get(reverse('equipo'))
+        # bob: 9 activas, no 10 (la de "Completado" no cuenta)
+        self.assertContains(resp, '9/8')
+
+
+class BoardViewModesTests(TestCase):
+    """El parámetro ?view= alterna kanban/lista/tabla/calendario."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from tasks.models import Card
+
+        cls.alice = User.objects.create_user(username='alice', password='alicepass1')
+        cls.board = Board.objects.create(name='Proj', owner=cls.alice)
+        cls.col = Column.objects.create(board=cls.board, title='To Do', order=0)
+        Card.objects.create(column=cls.col, title='Tarea visible', order=0)
+
+    def setUp(self):
+        self.client.login(username='alice', password='alicepass1')
+
+    def test_kanban_default_includes_board_js(self):
+        resp = self.client.get(reverse('board-detail', args=[self.board.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'board.js')
+        self.assertContains(resp, 'Tarea visible')
+
+    def test_list_view_no_board_js(self):
+        resp = self.client.get(reverse('board-detail', args=[self.board.id]), {'view': 'list'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Tarea visible')
+        self.assertNotContains(resp, 'board.js')
+
+    def test_table_view_renders(self):
+        resp = self.client.get(reverse('board-detail', args=[self.board.id]), {'view': 'table'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '<table')
+        self.assertContains(resp, 'Tarea visible')
+        self.assertNotContains(resp, 'board.js')
+
+    def test_calendar_view_renders(self):
+        resp = self.client.get(reverse('board-detail', args=[self.board.id]), {'view': 'calendar'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'view=kanban')  # selector de vista presente
+
+    def test_invalid_view_falls_back_to_kanban(self):
+        resp = self.client.get(reverse('board-detail', args=[self.board.id]), {'view': 'nope'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'board.js')

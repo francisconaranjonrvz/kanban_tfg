@@ -12,6 +12,11 @@ db.sqlite3
 db.sqlite3-journal
 *.sqlite3
 staticfiles/
+media/
+
+# Material de diseño (fuente pesada, no runtime)
+stitch.zip
+branding/
 
 # IDE / OS
 .vscode/
