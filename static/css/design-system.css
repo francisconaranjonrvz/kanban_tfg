@@ -207,11 +207,22 @@
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    /* Reset de borde estilo Tailwind preflight (que está desactivado): sin
+       esto, las utilidades `border` solo fijan el ancho y border-style queda
+       en `none`, por lo que los bordes no se pintan. Width 0 por defecto +
+       estilo sólido + color de marca → las utilidades `border`/`border-*`
+       funcionan, y desaparece el borde inset nativo de inputs/selects. */
+    border-width: 0;
+    border-style: solid;
+    border-color: rgb(var(--outline-variant));
 }
 
 html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    /* Reserva el hueco de la barra de scroll para que el contenido alineado a
+       la derecha (acciones del topbar) no salte entre páginas con/sin scroll. */
+    scrollbar-gutter: stable;
 }
 
 body {
@@ -245,8 +256,18 @@ button, input, select, textarea {
 
 button {
     background: none;
-    border: none;
     cursor: pointer;
+    /* Sin `border: none`: rompía las utilidades `border`/`border-primary` en
+       botones (p.ej. el checkbox de subtareas). El borde lo controla la regla
+       `*` (width 0) + las utilidades Tailwind. */
+}
+
+/* Form-controls: sin fondo ni borde nativos; el aspecto lo dan las utilidades
+   (bg-surface-variant + focus ring). Se conserva la apariencia nativa del
+   <select> (flecha). */
+input, select, textarea {
+    background-color: transparent;
+    border-radius: var(--radius-md);
 }
 
 a {
@@ -339,15 +360,15 @@ code {
 
 /* Flowly — CLARO (por defecto) */
 :root {
-    --surface:                247 249 251;  /* #f7f9fb página */
-    --surface-container-low:  242 244 246;  /* #f2f4f6 columnas */
-    --surface-container:      251 252 253;  /* #fbfcfd tarjetas (sin blanco puro) */
+    --surface:                237 240 245;  /* #edf0f5 página (gris claro, separa de las tarjetas) */
+    --surface-container-low:  245 247 250;  /* #f5f7fa columnas */
+    --surface-container:      253 254 255;  /* #fdfeff tarjetas (casi-blanco, sin blanco puro) */
     --surface-container-high: 234 237 240;  /* #eaedf0 elevado/hover */
-    --surface-variant:        236 238 240;  /* #eceef0 chips/hover */
+    --surface-variant:        233 236 240;  /* #e9ecf0 chips/inputs */
     --on-surface:             25 28 30;      /* #191c1e */
     --on-surface-variant:     91 101 115;    /* #5b6573 */
     --outline:                199 202 208;   /* #c7cad0 */
-    --outline-variant:        221 224 230;   /* #dde0e6 (borde algo más marcado) */
+    --outline-variant:        214 219 227;   /* #d6dbe3 (borde gris sutil visible) */
     --primary:                99 102 241;    /* #6366f1 indigo (relleno) */
     --accent-text:            79 70 229;     /* #4f46e5 indigo-600 (texto/enlaces) */
     --on-primary:             255 255 255;
@@ -410,7 +431,7 @@ code {
     --on-surface:             29 29 29;      /* #1d1d1d */
     --on-surface-variant:     90 90 90;      /* #5a5a5a */
     --outline:                192 192 192;   /* #c0c0c0 */
-    --outline-variant:        210 210 210;   /* #d2d2d2 (borde visible) */
+    --outline-variant:        205 205 205;   /* #cdcdcd (borde gris sutil visible) */
     --primary:                214 255 0;     /* lima (relleno) */
     --accent-text:            58 77 0;       /* #3a4d00 oliva legible sobre claro */
     --on-primary:             10 10 10;      /* casi-negro sobre lima */

@@ -19,6 +19,9 @@ from django.db import transaction
 from boards.models import Board, BoardMembership, Column, Label
 from organizations.models import OrganizationMembership
 from organizations.services import get_or_create_personal_organization
+from django.utils import timezone
+
+from collab.models import Channel, Message, Notification
 from tasks.models import Card, Comment, Subtask
 
 User = get_user_model()
@@ -133,6 +136,7 @@ class Command(BaseCommand):
 
         if opts['reset']:
             user.owned_boards.all().delete()
+            Notification.objects.filter(recipient=user).delete()
             self.stdout.write(self.style.WARNING(f'Wiped existing boards owned by {username}.'))
 
         organization = get_or_create_personal_organization(user)
@@ -199,6 +203,68 @@ class Command(BaseCommand):
                     if card.assignee_id is None:
                         card.assignee = mate
                         card.save(update_fields=['assignee'])
+
+        # --- Colaboración: presencia, chat y notificaciones (demo "vivo") ---
+        now = timezone.now()
+        ana = teammates.get('ana')
+        luis = teammates.get('luis')
+        if ana:
+            ana.last_seen = now - timedelta(seconds=20)      # online
+            ana.status_state = User.StatusState.WORKING
+            ana.status_message = 'Puliendo los tokens del tema 🎨'
+            ana.char_skin, ana.char_hair, ana.char_hair_style, ana.char_shirt = 0, 2, 1, 1
+            ana.save(update_fields=[
+                'last_seen', 'status_state', 'status_message',
+                'char_skin', 'char_hair', 'char_hair_style', 'char_shirt',
+            ])
+        if luis:
+            luis.last_seen = now - timedelta(minutes=3)      # ausente
+            luis.status_state = User.StatusState.BUSY
+            luis.status_message = 'Migrando la base de datos'
+            luis.char_skin, luis.char_hair, luis.char_hair_style, luis.char_shirt = 2, 1, 2, 5
+            luis.save(update_fields=[
+                'last_seen', 'status_state', 'status_message',
+                'char_skin', 'char_hair', 'char_hair_style', 'char_shirt',
+            ])
+        user.last_seen = now
+        user.status_message = '¡Construyendo Flowly!'
+        user.save(update_fields=['last_seen', 'status_message'])
+
+        first_board = (
+            Board.objects.filter(owner=user, organization=organization).order_by('id').first()
+        )
+        if first_board:
+            for author, body in [
+                (ana or user, '¡Buenas equipo! Subí los tokens nuevos del tema 🎨'),
+                (luis or user, 'Genial. Yo sigo con el diagrama ER de la BD.'),
+                (user, 'Top. Revisad vuestras tareas asignadas cuando podáis 🙌'),
+            ]:
+                Message.objects.create(board=first_board, author=author, body=body)
+
+            board_url = f'/board/{first_board.id}/'
+            if ana:
+                Notification.objects.create(
+                    recipient=user, actor=ana, board=first_board, organization=organization, url=board_url,
+                    verb='Ana te mencionó en el chat de «%s»' % first_board.name,
+                )
+            if luis:
+                Notification.objects.create(
+                    recipient=user, actor=luis, board=first_board, organization=organization, url=board_url,
+                    verb='Luis comentó en «Permisos por board»',
+                )
+
+        # Canal #general de la organización con algunos mensajes.
+        general, _ = Channel.objects.get_or_create(
+            organization=organization, is_general=True,
+            defaults={'name': 'general', 'slug': 'general'},
+        )
+        general.messages.all().delete()
+        for author, body in [
+            (ana or user, '¿Hacemos la daily a las 10? 🕙'),
+            (luis or user, 'Por mí perfecto. Llevo el tema de la BD casi listo.'),
+            (user, 'Genial, nos vemos en La Oficina 😎'),
+        ]:
+            Message.objects.create(channel=general, author=author, body=body)
 
         self.stdout.write(self.style.SUCCESS('\nDemo seeded.'))
         self.stdout.write(f'  user:     {username}')

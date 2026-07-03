@@ -1,8 +1,12 @@
 # Middleware que resuelve la organización activa de cada petición.
 
+from django.utils import timezone
+
 from .models import OrganizationMembership
 
 SESSION_KEY = 'active_org_id'
+PING_KEY = 'last_seen_ping'
+PING_THROTTLE_SECS = 30
 
 
 class OrganizationMiddleware:
@@ -21,12 +25,23 @@ class OrganizationMiddleware:
         self._attach(request)
         return self.get_response(request)
 
+    def _heartbeat(self, request, user):
+        """Actualiza last_seen como mucho cada PING_THROTTLE_SECS (1 UPDATE,
+        sin señales) para alimentar la presencia sin coste por petición."""
+        now = timezone.now()
+        last = request.session.get(PING_KEY, 0)
+        if now.timestamp() - last >= PING_THROTTLE_SECS:
+            user.__class__.objects.filter(pk=user.pk).update(last_seen=now)
+            request.session[PING_KEY] = now.timestamp()
+
     def _attach(self, request):
         user = getattr(request, 'user', None)
         if user is None or not user.is_authenticated:
             request.organization = None
             request.user_organizations = []
             return
+
+        self._heartbeat(request, user)
 
         memberships = list(
             OrganizationMembership.objects

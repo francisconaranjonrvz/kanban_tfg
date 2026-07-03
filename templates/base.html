@@ -9,9 +9,11 @@
     {% comment %}
     Aplica marca y tema antes del primer paint para evitar parpadeo (FOUC).
     Marca: la del usuario (renderizada en el server) manda; se cachea para
-    páginas anónimas. Modo: si el usuario lo fijó en Perfil, gana y resetea el
-    caché del toggle rápido; si es "auto", se respeta el toggle/organización/sistema.
-    Solo se interpolan enums controlados por el servidor.
+    páginas anónimas. Modo: localStorage manda (última acción local: toggle del
+    topbar o "modo" de Perfil, ambos escriben localStorage), luego el modo
+    fijado en el servidor, luego la organización, luego el sistema. Un listener
+    `storage` sincroniza tema/marca entre pestañas en vivo. Solo se interpolan
+    enums controlados por el servidor.
     {% endcomment %}
     <script>
         (function () {
@@ -21,23 +23,29 @@
                 if (serverBrand) {
                     try { localStorage.setItem('flowly-brand', serverBrand); } catch (e) {}
                 } else {
-                    var cachedBrand = localStorage.getItem('flowly-brand');
+                    var cachedBrand = null;
+                    try { cachedBrand = localStorage.getItem('flowly-brand'); } catch (e) {}
                     if (cachedBrand) el.setAttribute('data-brand', cachedBrand);
                 }
 
                 var userMode = '{{ user_theme_mode }}';
                 var orgMode = '{{ org_theme_mode }}';
                 var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-                var theme;
-                if (userMode === 'light' || userMode === 'dark') {
-                    theme = userMode;
-                    try { localStorage.setItem('flowly-theme', userMode); } catch (e) {}
-                } else {
-                    var stored = null;
-                    try { stored = localStorage.getItem('flowly-theme'); } catch (e) {}
-                    theme = stored || ((orgMode === 'light' || orgMode === 'dark') ? orgMode : system);
-                }
+                var stored = null;
+                try { stored = localStorage.getItem('flowly-theme'); } catch (e) {}
+                var theme = stored
+                    || (userMode === 'light' || userMode === 'dark' ? userMode : '')
+                    || (orgMode === 'light' || orgMode === 'dark' ? orgMode : '')
+                    || system;
                 el.setAttribute('data-theme', theme);
+
+                window.addEventListener('storage', function (ev) {
+                    if (ev.key === 'flowly-theme' && ev.newValue) {
+                        document.documentElement.setAttribute('data-theme', ev.newValue);
+                    } else if (ev.key === 'flowly-brand' && ev.newValue) {
+                        document.documentElement.setAttribute('data-brand', ev.newValue);
+                    }
+                });
             } catch (e) {
                 document.documentElement.setAttribute('data-theme', 'dark');
             }
@@ -45,6 +53,9 @@
     </script>
 
     <title>{% block title %}Flowly{% endblock %}</title>
+
+    <link rel="icon" href="{% static 'img/flowly-logo-32.png' %}" type="image/png" sizes="32x32">
+    <link rel="icon" href="{% static 'img/flowly-logo-64.png' %}" type="image/png" sizes="64x64">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

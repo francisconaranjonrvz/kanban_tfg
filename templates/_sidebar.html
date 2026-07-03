@@ -3,9 +3,7 @@
 
     {# Marca #}
     <a href="{% url 'home' %}" class="flex items-center gap-3 px-2 mb-6">
-        <span class="w-9 h-9 rounded-lg bg-primary text-on-primary flex items-center justify-center shrink-0">
-            <span class="material-symbols-outlined text-[20px]" style="font-variation-settings:'FILL' 1;">deployed_code</span>
-        </span>
+        {% include 'partials/_logo_mark.html' with cls='h-8 w-auto shrink-0' %}
         <span class="leading-tight min-w-0">
             <span class="block font-display font-bold text-on-surface truncate">Flowly</span>
             <span class="block text-[11px] font-display tracking-wider text-on-surface-variant uppercase truncate">{{ active_organization.name|default:'Tu espacio' }}</span>
@@ -19,26 +17,9 @@
         Nuevo proyecto
     </a>
 
-    {# Navegación #}
-    <nav class="flex-1 space-y-1">
-        {% with base='flex items-center gap-3 px-3 py-2 rounded-lg font-display text-[15px] transition-colors' %}
-        <a href="{% url 'home' %}"
-           class="{{ base }} {% if active_section == 'tableros' %}bg-surface-variant text-accent font-bold{% else %}text-on-surface-variant hover:bg-surface-variant hover:text-on-surface{% endif %}">
-            <span class="material-symbols-outlined text-[20px]">dashboard</span> Tableros
-        </a>
-        <a href="{% url 'calendario' %}"
-           class="{{ base }} {% if active_section == 'calendario' %}bg-surface-variant text-accent font-bold{% else %}text-on-surface-variant hover:bg-surface-variant hover:text-on-surface{% endif %}">
-            <span class="material-symbols-outlined text-[20px]">calendar_today</span> Calendario
-        </a>
-        <a href="{% url 'equipo' %}"
-           class="{{ base }} {% if active_section == 'equipo' %}bg-surface-variant text-accent font-bold{% else %}text-on-surface-variant hover:bg-surface-variant hover:text-on-surface{% endif %}">
-            <span class="material-symbols-outlined text-[20px]">groups</span> Equipo
-        </a>
-        <a href="{% url 'perfil' %}"
-           class="{{ base }} {% if active_section == 'perfil' %}bg-surface-variant text-accent font-bold{% else %}text-on-surface-variant hover:bg-surface-variant hover:text-on-surface{% endif %}">
-            <span class="material-symbols-outlined text-[20px]">account_circle</span> Perfil
-        </a>
-        {% endwith %}
+    {# Navegación (min-h-0 + overflow para que no se corten ítems en pantallas bajas) #}
+    <nav class="flex-1 min-h-0 overflow-y-auto space-y-1">
+        {% include 'partials/_nav_items.html' %}
     </nav>
 
     {# Usuario #}

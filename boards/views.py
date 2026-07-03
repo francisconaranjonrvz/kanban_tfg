@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, F, Q
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -198,14 +198,37 @@ def board_detail_view(request, board_id):
         return render(request, 'board_list.html', {**base_ctx, 'columns': columns})
 
     # Kanban (por defecto)
-    from tasks.plantillas_data import PLANTILLAS
     first_column = columns[0] if columns else None
     return render(request, 'board.html', {
         **base_ctx,
         'columns': columns,
         'labels': board.labels.all(),
-        'plantillas': PLANTILLAS,
         'first_column': first_column,
+    })
+
+
+@login_required
+def board_columns(request, board_id):
+    """Columnas + tarjetas del kanban (HTMX poll: tiempo real sin recargar)."""
+    from tasks.views import _board_members
+
+    board = get_object_or_404(Board, pk=board_id)
+    if not user_can_access_board(request.user, board):
+        return HttpResponseForbidden()
+
+    columns = (
+        board.columns
+        .prefetch_related(
+            'cards__labels', 'cards__assignee',
+            'cards__assignees', 'cards__subtasks', 'cards__comments',
+        )
+        .order_by('order')
+    )
+    return render(request, 'partials/_board_columns.html', {
+        'board': board,
+        'columns': columns,
+        'labels': board.labels.all(),
+        'members': _board_members(board),
     })
 
 
@@ -417,6 +440,9 @@ def equipo_view(request):
     members = []
     total_active = 0
     overloaded_count = 0
+    is_manager = any(
+        m.user_id == request.user.id and m.is_manager for m in memberships
+    )
 
     for m in memberships:
         user = m.user
@@ -465,4 +491,229 @@ def equipo_view(request):
         'total_active': total_active,
         'overloaded_count': overloaded_count,
         'capacity': MEMBER_CAPACITY,
+        'is_manager': is_manager,
     })
+
+
+@login_required
+def equipo_member_view(request, user_id):
+    """Perfil de un compañero de la organización: datos, carga y sus tareas."""
+    from collections import Counter
+
+    from tasks.models import Card
+
+    org = request.organization
+    if org is None:
+        raise Http404
+    membership = get_object_or_404(org.memberships.select_related('user'), user_id=user_id)
+    member_user = membership.user
+
+    board_ids = list(_accessible_boards(request).values_list('id', flat=True))
+    assigned = list(
+        Card.objects
+        .filter(assignees=member_user, column__board_id__in=board_ids)
+        .select_related('column', 'column__board')
+        .prefetch_related('labels')
+        .order_by('due_date')
+    )
+    active = [c for c in assigned if c.column.title.strip().lower() not in DONE_COLUMN_TITLES]
+    overdue_count = sum(1 for c in active if c.is_overdue)
+
+    label_counter = Counter()
+    for c in active:
+        for lbl in c.labels.all():
+            label_counter[(lbl.name, lbl.color)] += 1
+    areas = [{'name': n, 'color': col} for (n, col), _ in label_counter.most_common(5)]
+
+    percent_raw = round(len(active) / MEMBER_CAPACITY * 100) if MEMBER_CAPACITY else 0
+    return render(request, 'equipo_miembro.html', {
+        'member_user': member_user,
+        'role': membership.get_role_display(),
+        'active_count': len(active),
+        'overdue_count': overdue_count,
+        'capacity': MEMBER_CAPACITY,
+        'percent': min(100, percent_raw),
+        'percent_raw': percent_raw,
+        'overloaded': percent_raw > 85,
+        'areas': areas,
+        'tasks': assigned,
+    })
+
+
+# --- Buscador global ---
+
+@login_required
+def search_view(request):
+    """Busca tableros y tarjetas (título/descripción) en la organización activa."""
+    from tasks.models import Card
+
+    q = (request.GET.get('q') or '').strip()
+    boards = _accessible_boards(request)
+    board_results, card_results = [], []
+    if q:
+        board_results = list(boards.filter(name__icontains=q).order_by('name')[:10])
+        card_results = list(
+            Card.objects
+            .filter(column__board__in=boards)
+            .filter(Q(title__icontains=q) | Q(description__icontains=q))
+            .select_related('column', 'column__board')
+            .prefetch_related('labels')[:30]
+        )
+    return render(request, 'buscar.html', {
+        'q': q,
+        'board_results': board_results,
+        'card_results': card_results,
+    })
+
+
+@login_required
+def search_suggest(request):
+    """Autocompletar del buscador (dropdown HTMX): pocos resultados."""
+    from tasks.models import Card
+
+    q = (request.GET.get('q') or '').strip()
+    boards, cards = [], []
+    if q:
+        acc = _accessible_boards(request)
+        boards = list(acc.filter(name__icontains=q).order_by('name')[:5])
+        cards = list(
+            Card.objects
+            .filter(column__board__in=acc)
+            .filter(Q(title__icontains=q) | Q(description__icontains=q))
+            .select_related('column', 'column__board')[:6]
+        )
+    return render(request, 'partials/_search_suggest.html', {
+        'q': q, 'board_results': boards, 'card_results': cards,
+    })
+
+
+# --- Mis tareas (cross-tablero) ---
+
+@login_required
+def mis_tareas_view(request):
+    """Todas las tarjetas asignadas al usuario, agrupadas por vencimiento."""
+    from tasks.models import Card
+
+    boards = _accessible_boards(request)
+    cards = (
+        Card.objects
+        .filter(column__board__in=boards, assignees=request.user)
+        .select_related('column', 'column__board')
+        .prefetch_related('labels', 'assignees')
+        .distinct()
+    )
+    today = timezone.localdate()
+    week_end = today + timedelta(days=7)
+    buckets = {'overdue': [], 'today': [], 'week': [], 'later': [], 'nodate': []}
+    for c in cards:
+        d = c.due_date
+        if d is None:
+            buckets['nodate'].append(c)
+        elif d < today:
+            buckets['overdue'].append(c)
+        elif d == today:
+            buckets['today'].append(c)
+        elif d <= week_end:
+            buckets['week'].append(c)
+        else:
+            buckets['later'].append(c)
+
+    groups = [
+        {'label': 'Vencidas', 'key': 'overdue', 'cards': buckets['overdue']},
+        {'label': 'Hoy', 'key': 'today', 'cards': buckets['today']},
+        {'label': 'Esta semana', 'key': 'week', 'cards': buckets['week']},
+        {'label': 'Más adelante', 'key': 'later', 'cards': buckets['later']},
+        {'label': 'Sin fecha', 'key': 'nodate', 'cards': buckets['nodate']},
+    ]
+    return render(request, 'mis_tareas.html', {
+        'groups': groups,
+        'total': sum(len(g['cards']) for g in groups),
+    })
+
+
+# --- Flowly Office (presencia visual) ---
+
+def _office_members(request):
+    """Miembros de la org con su tarea actual (card activa más reciente)."""
+    from tasks.models import Card
+
+    org = request.organization
+    if org is None:
+        return []
+    board_ids = list(_accessible_boards(request).values_list('id', flat=True))
+    rows = []
+    for m in org.memberships.select_related('user').order_by('user__username'):
+        user = m.user
+        active = (
+            Card.objects
+            .filter(assignees=user, column__board_id__in=board_ids)
+            .select_related('column', 'column__board')
+            .order_by('-id')
+        )
+        current = next(
+            (c for c in active if c.column.title.strip().lower() not in DONE_COLUMN_TITLES),
+            None,
+        )
+        rows.append({'user': user, 'current': current})
+    return rows
+
+
+@login_required
+def office_view(request):
+    """La 'oficina' visual de la organización (shell + estado + personalizador)."""
+    from users.models import (
+        CHAR_HAIR_STYLES, CHAR_HAIRS, CHAR_SHIRTS, CHAR_SKINS, User,
+    )
+    return render(request, 'office.html', {
+        'status_choices': User.StatusState.choices,
+        'palette_groups': [
+            ('char_skin', 'Piel', list(enumerate(CHAR_SKINS))),
+            ('char_hair', 'Pelo (color)', list(enumerate(CHAR_HAIRS))),
+            ('char_shirt', 'Camiseta', list(enumerate(CHAR_SHIRTS))),
+        ],
+        'palettes': {'hair_styles': list(enumerate(CHAR_HAIR_STYLES))},
+    })
+
+
+@login_required
+@require_POST
+def office_customize(request):
+    """Guarda el aspecto del personaje 8-bit del usuario."""
+    from users.models import CHAR_HAIR_STYLES, CHAR_HAIRS, CHAR_SHIRTS, CHAR_SKINS
+
+    def parse(name, options):
+        raw = request.POST.get(name)
+        if not raw:
+            return None
+        try:
+            i = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return i if 0 <= i < len(options) else None
+
+    request.user.char_skin = parse('char_skin', CHAR_SKINS)
+    request.user.char_hair = parse('char_hair', CHAR_HAIRS)
+    request.user.char_hair_style = parse('char_hair_style', CHAR_HAIR_STYLES)
+    request.user.char_shirt = parse('char_shirt', CHAR_SHIRTS)
+    request.user.save(update_fields=['char_skin', 'char_hair', 'char_hair_style', 'char_shirt'])
+    return redirect('office')
+
+
+@login_required
+def office_room(request):
+    """Sala con los personajes (HTMX poll de presencia)."""
+    return render(request, 'partials/_office_room.html', {'members': _office_members(request)})
+
+
+@login_required
+@require_POST
+def office_status(request):
+    """Actualiza el estado y mensaje de presencia del usuario."""
+    from users.models import User
+
+    state = request.POST.get('status_state', '')
+    if state in set(User.StatusState.values):
+        request.user.status_state = state
+    request.user.status_message = (request.POST.get('status_message') or '').strip()[:80]
+    request.user.save(update_fields=['status_state', 'status_message'])
+    return redirect('office')

@@ -12,9 +12,34 @@
 
   var draggedEl = null;
   var dragKind = null; // 'card' o 'column'
+  var dragGhost = null; // clon que se ve "en la mano" al arrastrar
+  var dragging = false; // true mientras se arrastra (pausa el polling)
+
+  // Crea una imagen de arrastre propia (la tarjeta inclinada con sombra) para
+  // que se vea claramente qué se está moviendo.
+  function setCardDragImage(e, card) {
+    var rect = card.getBoundingClientRect();
+    var ghost = card.cloneNode(true);
+    ghost.classList.remove('is-dragging');
+    ghost.style.position = 'fixed';
+    ghost.style.top = '-9999px';
+    ghost.style.left = '0';
+    ghost.style.width = rect.width + 'px';
+    ghost.style.margin = '0';
+    ghost.style.opacity = '1';
+    ghost.style.transform = 'rotate(3deg)';
+    ghost.style.boxShadow = '0 14px 28px rgba(0,0,0,0.35)';
+    ghost.style.pointerEvents = 'none';
+    document.body.appendChild(ghost);
+    dragGhost = ghost;
+    try {
+      e.dataTransfer.setDragImage(ghost, e.clientX - rect.left, e.clientY - rect.top);
+    } catch (err) { /* navegadores sin setDragImage: usan el por defecto */ }
+  }
 
   // --- Drag start ---
   boardEl.addEventListener('dragstart', function (e) {
+    dragging = true;
     var card = e.target.closest('.card');
     if (card) {
       dragKind = 'card';
@@ -22,6 +47,7 @@
       card.classList.add('is-dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', card.dataset.cardId);
+      setCardDragImage(e, card);
       requestAnimationFrame(function () { card.style.opacity = '0.4'; });
       return;
     }
@@ -81,7 +107,7 @@
         postJSON('/board/' + boardId + '/column/move/', {
           column_id: parseInt(draggedEl.dataset.columnId),
           order: idx,
-        }).then(function () { location.reload(); });
+        }).then(refreshBoard);
       }
       cleanup();
       return;
@@ -106,7 +132,7 @@
       card_id: parseInt(cardId),
       column_id: parseInt(toColumnId),
       order: order,
-    }).then(function () { location.reload(); });
+    }).then(refreshBoard);
   });
 
   // --- Drag end ---
@@ -146,6 +172,10 @@
   }
 
   function cleanup() {
+    if (dragGhost) {
+      dragGhost.remove();
+      dragGhost = null;
+    }
     if (draggedEl) {
       draggedEl.classList.remove('is-dragging');
       draggedEl.style.opacity = '';
@@ -158,6 +188,7 @@
     });
     draggedEl = null;
     dragKind = null;
+    dragging = false;
   }
 
   function postJSON(url, body) {
@@ -170,6 +201,37 @@
       body: JSON.stringify(body),
     });
   }
+
+  // --- Tiempo real (polling) ---
+  // El #board se refresca solo cada 6s vía HTMX. Aquí evitamos que un refresco
+  // pise un arrastre en curso o un formulario a medio escribir, y forzamos un
+  // refresco inmediato tras mover una tarjeta/columna.
+
+  // ¿Hay algo en marcha que no debamos interrumpir?
+  function boardIsBusy() {
+    if (dragging) return true;
+    var a = document.activeElement;
+    if (a && boardEl.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) {
+      return true;
+    }
+    return false;
+  }
+
+  // Refresca el contenido del tablero ahora mismo (si HTMX está disponible y no
+  // estamos ocupados). Se usa tras un move para reflejar el orden real.
+  function refreshBoard() {
+    if (boardIsBusy()) return;
+    if (window.htmx) window.htmx.trigger(boardEl, 'refreshBoard');
+  }
+
+  // (El evento 'refreshBoard' se declara en el hx-trigger de #board.)
+
+  // Cancela el tick periódico mientras se arrastra o se escribe.
+  document.body.addEventListener('htmx:beforeRequest', function (e) {
+    if (e.target === boardEl && boardIsBusy()) {
+      e.preventDefault();
+    }
+  });
 
   // Los menús de columna y los formularios inline (abrir/cerrar, Escape,
   // clic-fuera) los gestiona Alpine en board.html.

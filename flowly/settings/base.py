@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'organizations',
     'boards',
     'tasks',
+    'collab',
 ]
 
 MIDDLEWARE = [

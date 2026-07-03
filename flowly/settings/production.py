@@ -4,8 +4,17 @@ from .base import *  # noqa: F401, F403
 
 DEBUG = False
 
+# En producción el SECRET_KEY es OBLIGATORIO: sin fallback inseguro. Si la
+# variable de entorno no está definida, el arranque falla de forma explícita
+# (mejor que servir con una clave pública conocida).
+SECRET_KEY = env('DJANGO_SECRET_KEY')  # noqa: F405
+
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = env.bool('DJANGO_SECURE_SSL_REDIRECT', default=True)
+# El healthcheck de Railway llega por HTTP interno (sin X-Forwarded-Proto), así
+# que SECURE_SSL_REDIRECT lo redirige a https (301) y Railway lo da por fallido.
+# Eximimos solo esas rutas; el resto del sitio sigue forzando HTTPS.
+SECURE_REDIRECT_EXEMPT = [r'^healthz$', r'^readyz$']
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = env.int('DJANGO_HSTS_SECONDS', default=0)
@@ -19,3 +28,17 @@ X_FRAME_OPTIONS = 'DENY'
 # desde disco (SERVE_MEDIA queda en False, heredado de base). Persistencia real
 # = follow-up: django-storages + S3 (STORAGES['default'] -> S3Boto3Storage,
 # MEDIA_URL apuntando al bucket/CDN).
+
+# Railway expone el dominio público en RAILWAY_PUBLIC_DOMAIN: lo añadimos a
+# los orígenes CSRF de confianza para que el deploy funcione sin configurar
+# el dominio a mano.
+_railway_domain = env('RAILWAY_PUBLIC_DOMAIN', default='')
+if _railway_domain:
+    CSRF_TRUSTED_ORIGINS = [*CSRF_TRUSTED_ORIGINS, f'https://{_railway_domain}']
+
+# El healthcheck de Railway llega por red interna con un Host distinto al
+# dominio público, así que el filtrado por Host no es viable aquí: la
+# protección real contra Host-header spoofing la da el proxy de Railway (no
+# hay forma de hablar con la app sin pasar por él) y CSRF_TRUSTED_ORIGINS
+# (que sigue restringido) para peticiones que cambian estado.
+ALLOWED_HOSTS = ['*']

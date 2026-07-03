@@ -28,7 +28,7 @@
             <input type="hidden" name="view" value="calendar">
             <input type="hidden" name="year" value="{{ year }}">
             <input type="hidden" name="month" value="{{ month }}">
-            <select name="priority" class="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
+            <select name="priority" class="bg-surface-variant rounded-lg px-3 py-2 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
                 <option value="">Toda prioridad</option>
                 <option value="4" {% if selected_priority == '4' %}selected{% endif %}>Urgente</option>
                 <option value="3" {% if selected_priority == '3' %}selected{% endif %}>Alta</option>
@@ -38,8 +38,11 @@
         </form>
     </div>
 
-    {# ---- Rejilla ---- #}
-    <div class="rounded-xl border border-outline-variant overflow-hidden">
+    {# ---- Agenda (móvil) ---- #}
+    {% include 'partials/_calendar_agenda.html' %}
+
+    {# ---- Rejilla (escritorio) ---- #}
+    <div class="hidden md:block rounded-xl border border-outline-variant overflow-hidden">
         <div class="grid grid-cols-7 bg-surface-container border-b border-outline-variant">
             {% for name in weekday_names %}
             <div class="px-2 py-2 text-center text-[11px] font-display uppercase tracking-wide text-on-surface-variant">{{ name }}</div>

@@ -1,6 +1,7 @@
 # Vistas de tarjetas (Card).
 
 import json
+import re
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
@@ -8,14 +9,18 @@ from django.db import transaction
 from django.db.models import F
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from boards.models import Board, Column
 from boards.permissions import user_can_access_board
+from collab.models import notify
 
 from .models import Card, Comment, Subtask
 
 User = get_user_model()
+
+_MENTION_RE = re.compile(r'@(\w+)')
 
 
 def _board_members(board):
@@ -23,6 +28,37 @@ def _board_members(board):
     ids = {board.owner_id}
     ids.update(board.members.values_list('id', flat=True))
     return User.objects.filter(id__in=ids).order_by('username')
+
+
+def _card_url(card):
+    return reverse('card-edit', kwargs={'board_id': card.column.board_id, 'card_id': card.id})
+
+
+def _notify_assigned(actor, card, user_ids):
+    """Notifica a los recién asignados (ids), excepto al actor."""
+    user_ids = {int(i) for i in user_ids}
+    user_ids.discard(actor.id)
+    if not user_ids:
+        return
+    url = _card_url(card)
+    verb = f'{actor.get_full_name_or_username()} te asignó «{card.title}»'
+    for u in User.objects.filter(id__in=user_ids):
+        notify(u, verb=verb, actor=actor, url=url, board=card.column.board)
+
+
+def _notify_comment(actor, card, body, members):
+    """Notifica el comentario: a los mencionados (@usuario) y a los asignados."""
+    url = _card_url(card)
+    names = {n.lower() for n in _MENTION_RE.findall(body)}
+    by_username = {m.username.lower(): m for m in members}
+    mentioned = {by_username[n] for n in names if n in by_username}
+    assignees = set(card.assignees.all())
+    for u in mentioned:
+        notify(u, verb=f'{actor.get_full_name_or_username()} te mencionó en «{card.title}»',
+               actor=actor, url=url, board=card.column.board)
+    for u in assignees - mentioned:
+        notify(u, verb=f'{actor.get_full_name_or_username()} comentó en «{card.title}»',
+               actor=actor, url=url, board=card.column.board)
 
 
 def _get_card_or_403(request, board_id, card_id):
@@ -78,6 +114,7 @@ def card_create_view(request, board_id):
             card.assignees.set(valid_assignees)
             card.assignee = card.assignees.first()
             card.save(update_fields=['assignee'])
+            _notify_assigned(request.user, card, valid_assignees)
 
     return redirect('board-detail', board_id=board_id)
 
@@ -113,12 +150,16 @@ def card_edit_view(request, board_id, card_id):
         assignee_ids = request.POST.getlist('assignees')
         member_ids = set(_board_members(board).values_list('id', flat=True))
         valid_assignees = [int(i) for i in assignee_ids if int(i) in member_ids]
+        before = set(card.assignees.values_list('id', flat=True))
         card.assignees.set(valid_assignees)
         # Mantener el FK assignee sincronizado con el primer asignado (compat).
         card.assignee = card.assignees.first()
         card.save(update_fields=['assignee'])
+        # Notificar solo a los recién añadidos.
+        _notify_assigned(request.user, card, set(valid_assignees) - before)
 
-        return redirect('card-edit', board_id=board_id, card_id=card.id)
+        # Al guardar, volver al tablero (no quedarse en la edición).
+        return redirect('board-detail', board_id=board_id)
 
     labels = board.labels.all()
     columns = board.columns.order_by('order')
@@ -186,13 +227,6 @@ def card_move_view(request, board_id):
         card.save(update_fields=['order'])
 
     return JsonResponse({'ok': True})
-
-
-@login_required
-def plantillas_api_view(request):
-    """API interna: plantillas de tareas sugeridas."""
-    from .plantillas_data import PLANTILLAS
-    return JsonResponse(PLANTILLAS, safe=False)
 
 
 # ---- Subtareas (checklist) ----
@@ -264,6 +298,7 @@ def comment_create_view(request, board_id, card_id):
     body = request.POST.get('body', '').strip()
     if body:
         Comment.objects.create(card=card, author=request.user, body=body)
+        _notify_comment(request.user, card, body, _board_members(board))
     return _render_comments(request, card, board)
 
 

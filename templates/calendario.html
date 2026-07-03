@@ -26,13 +26,13 @@
         <form method="get" class="flex items-center gap-2 text-sm" onchange="this.submit()">
             <input type="hidden" name="year" value="{{ year }}">
             <input type="hidden" name="month" value="{{ month }}">
-            <select name="board" class="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
+            <select name="board" class="bg-surface-variant rounded-lg px-3 py-2 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
                 <option value="">Todos los tableros</option>
                 {% for b in boards %}
                 <option value="{{ b.id }}" {% if selected_board == b.id|stringformat:'s' %}selected{% endif %}>{{ b.name }}</option>
                 {% endfor %}
             </select>
-            <select name="priority" class="bg-surface-container border border-outline-variant rounded-lg px-3 py-2 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
+            <select name="priority" class="bg-surface-variant rounded-lg px-3 py-2 text-on-surface focus:outline-none focus:ring-1 focus:ring-primary">
                 <option value="">Toda prioridad</option>
                 <option value="4" {% if selected_priority == '4' %}selected{% endif %}>Urgente</option>
                 <option value="3" {% if selected_priority == '3' %}selected{% endif %}>Alta</option>
@@ -42,8 +42,11 @@
         </form>
     </div>
 
-    {# ---- Rejilla ---- #}
-    <div class="rounded-xl border border-outline-variant overflow-hidden">
+    {# ---- Agenda (móvil) ---- #}
+    {% include 'partials/_calendar_agenda.html' %}
+
+    {# ---- Rejilla (escritorio) ---- #}
+    <div class="hidden md:block rounded-xl border border-outline-variant overflow-hidden">
         {# Cabecera de días de la semana #}
         <div class="grid grid-cols-7 bg-surface-container border-b border-outline-variant">
             {% for name in weekday_names %}

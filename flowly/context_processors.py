@@ -39,8 +39,13 @@ _SECTION_BY_URL = {
     'board-create': 'tableros',
     'board-update': 'tableros',
     'board-delete': 'tableros',
+    'mis-tareas': 'mis-tareas',
     'calendario': 'calendario',
     'equipo': 'equipo',
+    'equipo-member': 'equipo',
+    'chat': 'chat',
+    'chat-channel': 'chat',
+    'office': 'office',
     'perfil': 'perfil',
 }
 
@@ -50,6 +55,15 @@ def _active_section(request):
     if match is None:
         return ''
     return _SECTION_BY_URL.get(match.url_name or '', '')
+
+
+def _unread_count(user, org):
+    """Nº de notificaciones sin leer en la organización activa (badge de la
+    campana). Aislamiento multi-tenant: solo cuenta las de esa organización."""
+    if org is None:
+        return 0
+    from collab.models import Notification
+    return Notification.objects.filter(recipient=user, organization=org, unread=True).count()
 
 
 def _hex_to_channels(value):
@@ -110,6 +124,7 @@ def org_theme(request):
         'user_organizations': getattr(request, 'user_organizations', None),
         'org_theme_css': '',
         'org_theme_mode': '',
+        'unread_count': _unread_count(user, org) if is_auth else 0,
     }
     if context['user_organizations'] is None:
         # Fallback defensivo si el middleware no se ejecutó (p.ej. en tests).

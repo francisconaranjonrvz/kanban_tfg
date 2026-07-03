@@ -1,0 +1,9 @@
+{% load static %}
+{% comment %}Logomark de Flowly (artwork real del usuario, en PNG). Se pinta vía
+CSS mask + bg-current, así hereda text-primary del bloque que lo envuelve y se
+adapta a marca/tema (índigo Flowly, lima NSW, claro/oscuro) sin redibujar nada.
+Param opcional: cls (tamaño; usa altura, p.ej. 'h-8'; el ancho se calcula solo
+por el aspect-ratio del logo).{% endcomment %}
+<span class="{{ cls|default:'h-7' }} text-primary bg-current inline-block shrink-0"
+      style="aspect-ratio:510/483;-webkit-mask-image:url('{% static 'img/flowly-logo-mask.png' %}');mask-image:url('{% static 'img/flowly-logo-mask.png' %}');-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;"
+      role="img" aria-label="Flowly"></span>

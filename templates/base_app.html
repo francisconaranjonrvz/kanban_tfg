@@ -12,4 +12,7 @@
 </div>
 
 {% include '_bottomnav.html' %}
+
+{# Heartbeat de presencia: mantiene last_seen fresco sin navegar #}
+<div hx-get="{% url 'presence-ping' %}" hx-trigger="every 40s" hx-swap="none" class="hidden" aria-hidden="true"></div>
 {% endblock %}
